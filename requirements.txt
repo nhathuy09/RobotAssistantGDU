@@ -1,0 +1,19 @@
+# Audio capture and playback
+PyAudio==0.2.14
+
+# Numerical processing and voice activity detection
+numpy==2.5.2
+scipy==1.18.1
+
+# Wake-word detection
+openwakeword==0.4.0
+
+# Gemini Live API websocket client
+websockets==17.1
+
+# Robot serial communication and face display
+pyserial==3.5
+pygame==2.6.1
+
+# Environment variable loading
+python-dotenv==1.2.3
