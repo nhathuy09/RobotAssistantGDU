@@ -33,7 +33,7 @@ async def setup_gemini(ws):
     }
     await ws.send(json.dumps(setup_msg))
     await ws.recv() 
-    print("[✅] Đã kết nối trí tuệ Gemini!")
+    print("[] Đã kết nối trí tuệ Gemini!")
 
 # Thêm tham số out_stream để phát âm thanh
 async def receive_from_gemini(ws, out_stream):

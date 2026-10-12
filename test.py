@@ -1,26 +1,13 @@
-import serial
 import time
+from audio.microphone import Microphone
 
-ser = serial.Serial(
-    "/dev/ttyACM0",
-    115200,
-    timeout=1
-)
-
-print("Connected")
-
-time.sleep(2)
-
-ser.write(b"W")
-ser.flush()
-
-print("Sent W")
-
-time.sleep(2)
-
-ser.write(b"X")
-ser.flush()
-
-print("Sent X")
-
-ser.close()
+mic = Microphone()
+mic.start_stream()
+try:
+    print("10 giây đầu: GIỮ YÊN LẶNG. Sau đó nói bình thường, rồi nói to.")
+    t0 = time.time()
+    while time.time() - t0 < 30:
+        mic.read()
+        print(f"rms_in={mic.last_rms_in:7.1f}  gain={mic.last_gain:5.2f}  clipped={mic.last_clipped}")
+finally:
+    mic.stop_stream()
