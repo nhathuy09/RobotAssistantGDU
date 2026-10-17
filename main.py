@@ -193,7 +193,6 @@
 
 import asyncio
 import time
-
 from audio.microphone import Microphone
 from audio.speaker import Speaker
 from audio.vad import VoiceActivityDetector
