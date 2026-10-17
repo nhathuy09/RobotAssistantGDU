@@ -1,17 +1,46 @@
 import serial,time
 import threading
+import serial_asyncio_fast
 import queue
+from serial.tools import list_ports
+import asyncio
+MAX_DURATION=5.0
+RECONNECT_INTERVAL=3.0
+PROBE_WAIT=2.0
+PROBE_REPLY_TIMEOUT=1.0
+MAX_LINE=1024
+KNOWN_VIDS = {0x303A, 0x10C4, 0x1A86, 0x0403}  
+SKIP_PREFIXES = ("/dev/ttyAMA", "/dev/ttyS", "/dev/serial")
+class _LineProtocol(asyncio.Protocol):
+    def __init__(self,on_lost):
+        self.lines=asyncio.Queue()
+        self._buffer=bytearray()
+        self.on_lost = on_lost
+    def data_received(self, data):
+        self._buffer.extend(data)
+        while (i:= self._buffer.find(b"\n")) >= 0:
+            line = self._buffer[:i].decode('utf-8', errors='ignore').strip()
+            del self._buffer[:i+1]
+            if line:
+                self.lines.put_nowait(line)
+        if len(self._buffer)>MAX_LINE:
+            self._buffer.clear()
+    def connection_lost(self, exc):
+        self.on_lost(self, exc)
+    def clear(self):
+        self._buffer.clear()
+        while not self.lines.empty():
+            self.lines.get_nowait()
 class OrcController:
-    def __init__(self,port="/dev/ttyACM0",baudrate=115200,timeout=0.1):
+    def __init__(self,port=None,baudrate=115200,timeout=0.1):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.serial=None    
-        self.connected=False
-        
+        self.connected=False    
         self._queue = queue.Queue()
         self._worker_thread = None
-        self._stop_event = threading.Event()
+        self._stop_event = threading.Event()    
     def connect(self):
         if self.serial is None:
             try:
@@ -77,15 +106,12 @@ class OrcController:
     def turn_left(self, duration=1.0, speed=50):
         self._validate_motion(duration, speed)
         return self.send_command(f"Q {duration} {speed}")
-
     def turn_right(self, duration=1.0, speed=50):
         self._validate_motion(duration, speed)
-        return self.send_command(f"E {duration} {speed}")
-        
+        return self.send_command(f"E {duration} {speed}") 
     def forward(self, duration=1.0, speed=50):
         self._validate_motion(duration, speed)
         return self.send_command(f"W {duration} {speed}")
-
     def backward(self, duration=1.0, speed=50):
         self._validate_motion(duration, speed)
         return self.send_command(f"S {duration} {speed}")

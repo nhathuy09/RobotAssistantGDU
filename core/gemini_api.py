@@ -202,7 +202,6 @@ class GeminiAPI:
         try:
             async for message in self.ws:
                 response = json.loads(message)
-
                 if "goAway" in response:
                     self.go_away_time_left = response["goAway"].get("timeLeft")
                     print(f"[GEMINI] GoAway nhận được, còn lại: {self.go_away_time_left}")
@@ -213,7 +212,6 @@ class GeminiAPI:
                     if update.get("resumable") and update.get("newHandle"):
                         self.resumption_handle = update["newHandle"]
                     continue
-
                 if "toolCall" in response:
                     await self._handle_tool_call(response["toolCall"])
                     continue
