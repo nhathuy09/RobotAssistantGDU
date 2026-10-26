@@ -1,0 +1,29 @@
+[
+  {
+    "id": "D3:D8:1A:8C:74:F6",
+    "mac": "D3:D8:1A:8C:74:F6",
+    "name": "Baseus Encok WM01",
+    "type": "Headphones",
+    "status": "Paired",
+    "connected": false,
+    "signal": 72
+  },
+  {
+    "id": "50:C0:F0:97:BD:FE",
+    "mac": "50:C0:F0:97:BD:FE",
+    "name": "Tronsmart T6 Mini Upgraded",
+    "type": "Audio Device",
+    "status": "Paired",
+    "connected": false,
+    "signal": 72
+  },
+  {
+    "id": "34:09:C9:D2:8E:F2",
+    "mac": "34:09:C9:D2:8E:F2",
+    "name": "soundcore R50i NC",
+    "type": "Audio Device",
+    "status": "Paired",
+    "connected": false,
+    "signal": 72
+  }
+]

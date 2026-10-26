@@ -37,20 +37,22 @@ class Card(BaseWidget):
     def draw(self,surface:pygame.Surface):
         if not  self.visible:
             return
-        pygame.draw.rect(surface,self.bg_color,self.rect,border_radius=self.border_radius)
-        if selff.border_color is not None:
-            pygame.draw.rect(surface,self.border_color,self.rect,1,border_radius=self.border_radius)
-        y=self.rect.y+self.padding
+        pygame.draw.rect(surface, self.bg_color, self.rect, border_radius=self.border_radius)
+        if self.border_color is not None:
+            pygame.draw.rect(surface, self.border_color, self.rect, 1, border_radius=self.border_radius)
+        y = self.rect.y + self.padding
         if self.title:
-            font-self.title_font
-            if font is not None:
-                title_surface=font.render(self.title,True,self.title_color)
-                surface.blit(title_surface,(self.rect.x+self.padding,y))
-                y+=title_surface.get_height()+8
-        if self.description:
-            font=self.description_font
+            font = self.title_font
             if font is None and self.theme is not None:
-                font=self.theme.get_font(13)
+                font = self.theme.get_font(15, bold=True)
             if font is not None:
-                description_surface=font.render(self.description,True,self.description_color)
-                surface.blit(description_surface,(self.rect.x+self.padding,y))
+                title_surface = font.render(self.title, True, self.title_color)
+                surface.blit(title_surface, (self.rect.x + self.padding, y))
+                y += title_surface.get_height() + 8
+        if self.description:
+            font = self.description_font
+            if font is None and self.theme is not None:
+                font = self.theme.get_font(13)
+            if font is not None:
+                description_surface = font.render(self.description, True, self.description_color)
+                surface.blit(description_surface, (self.rect.x + self.padding, y))

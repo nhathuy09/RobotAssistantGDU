@@ -123,8 +123,8 @@ class OrcController:
     #     return self.send_command(f"L {angle} {speed}")
     def stop(self):
         return self.send_command("X")
-    def hello(self):
-        return self.send_command("H")
-    def idle(self):
-        return self.send_command("B")
+    # def hello(self):
+    #     return self.send_command("H")
+    # def idle(self):
+    #     return self.send_command("B")
         

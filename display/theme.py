@@ -2,51 +2,109 @@ from typing import Dict, Tuple
 import pygame
 
 class Colors:
-    COLOR_747A80 = (116, 122, 128)  # Muted Slate Grey
-    COLOR_FFFEFB = (255, 254, 251)  # Warm White
-    COLOR_2B303A = (43, 48, 58)     # Dark Charcoal
-    COLOR_E2E1DA = (226, 225, 218)  # Light Warm Border
-    COLOR_62798C = (98, 121, 140)   # Slate Blue Accent
-    COLOR_C8CCC8 = (200, 204, 200)  # Soft Border / Radio
-    COLOR_F0F0EB = (240, 240, 235)  # Page Background
-    COLOR_7C8D7C = (124, 141, 124)  # Sage Green Icon
-    COLOR_6B8675 = (107, 134, 117)  # Active Sage Green
-    COLOR_A7B7AC = (167, 183, 172)  # Light Sage Border
-    COLOR_DFE7E0 = (223, 231, 224)  # Mint Sage Background
-    COLOR_DANGER = (220, 38, 38)
-    
-    COLOR_BG = (205, 214, 224)
-    COLOR_INK = (24, 26, 32)
-    COLOR_TEETH = (255, 255, 255)
+    # ==========================================
+    # 1. BẢNG MÀU CHỦ ĐẠO (BD-1 BRAND PALETTE)
+    # ==========================================
+    FOREST_GREEN = (24, 61, 48)     # #183D30 - Màu chủ đạo: xanh rừng sâu
+    PINE_GREEN   = (40, 87, 67)     # #285743 - Xanh thông: nút chính & điểm nhấn tương tác
+    SAGE_MUTED   = (170, 185, 173)  # #AAB9AD - Xanh xám dịu: icon phụ & trạng thái nhẹ
+    MIST_GRAY    = (221, 226, 222)  # #DDE2DE - Xám sương: nền phụ & viền phân vùng
+    SNOW_WHITE   = (245, 247, 244)  # #F5F7F4 - Trắng sương: nền sáng chính toàn trang
 
-    BG_PAGE = COLOR_F0F0EB
-    CARD_BG = COLOR_FFFEFB
-    CARD_BORDER = COLOR_E2E1DA
-    TEXT_DARK = COLOR_2B303A
-    TEXT_MUTED = COLOR_747A80
-    TEXT_LABEL = COLOR_2B303A
-    BTN_PRIMARY = COLOR_62798C
-    BTN_PRIMARY_HOVER = (82, 103, 120)
-    BORDER_RADIO = COLOR_C8CCC8
-    GREEN_BG = COLOR_DFE7E0
-    GREEN_BORDER = COLOR_A7B7AC
-    GREEN_TEXT = COLOR_6B8675
-    GREEN_CHECK = COLOR_6B8675
-    GREEN_ICON = COLOR_7C8D7C
-    INPUT_BG = COLOR_F0F0EB
-    INPUT_BORDER = COLOR_E2E1DA
-    INPUT_BORDER_FOCUS = COLOR_62798C
-        # Assistive Touch
-    MENU_SLATE = COLOR_62798C
-    MENU_WARM_BG = COLOR_F0F0EB
-    COLOR_WHITE = COLOR_TEETH
+    # ==========================================
+    # 2. MÀU CƠ BẢN & PHỤ TRỢ
+    # ==========================================
+    COLOR_WHITE      = (255, 255, 255)
+    COLOR_DANGER     = (215, 60, 60)
+    PINE_GREEN_LIGHT = (232, 240, 235)
+
+    # ==========================================
+    # 3. MÀU NỀN & PHÂN VÙNG (BACKGROUNDS & PANELS)
+    # ==========================================
+    PAGE_BG          = SNOW_WHITE               # Nền chính toàn màn hình
+    BG_PAGE          = SNOW_WHITE               # Alias cho PAGE_BG
+    CARD_BG          = (255, 255, 255)          # Nền thẻ trắng chính
+    CARD_BG_MUTED    = (235, 239, 236)          # Nền phụ xám xanh nhẹ cho card / item
+    CARD_BORDER      = MIST_GRAY                # Viền card / đường phân cách
+    TERMINAL_BG      = (18, 38, 30)             # Nền console log xanh rừng sâu tối đậm
+    TAB_BG           = MIST_GRAY                # Nền phân vùng chuyển tab
+    CONNECTED_BG     = PINE_GREEN               # Nền badge / nút trạng thái kết nối
+    OVERLAY_BG       = (24, 61, 48)             # Lớp phủ mờ modal
+
+    # ==========================================
+    # 4. MÀU CHỮ & TYPOGRAPHY
+    # ==========================================
+    TEXT_MAIN        = FOREST_GREEN             # Chữ tiêu đề & nhãn chính
+    TEXT_DARK        = FOREST_GREEN             # Alias cho TEXT_MAIN
+    TEXT_MUTED       = (95, 115, 105)           # Chữ phụ thanh nhã, dễ đọc
+    TEXT_LIGHT       = SAGE_MUTED               # Chữ làm mờ nhẹ
+    TEXT_FOOTER      = SAGE_MUTED               # Chữ chân trang
+
+    # ==========================================
+    # 5. NÚT BẤM & TRẠNG THÁI (BUTTONS & STATES)
+    # ==========================================
+    BTN_PRIMARY         = PINE_GREEN            # Nút bấm chính
+    BTN_PRIMARY_HOVER   = FOREST_GREEN          # Nút bấm chính khi hover/nhấn
+    BTN_SECONDARY       = MIST_GRAY             # Nút bấm phụ
+    BTN_SECONDARY_HOVER = (205, 212, 207)       # Nút bấm phụ khi hover
+    BTN_BG              = PINE_GREEN            # Alias nút bấm chính
+    BTN_HOVER           = FOREST_GREEN          # Alias nút bấm hover
+    SUCCESS_COLOR       = PINE_GREEN            # Màu thông báo thành công
+    ERROR_COLOR         = COLOR_DANGER          # Màu thông báo lỗi
+    GREEN_STATUS        = PINE_GREEN            # Chấm trạng thái hoạt động tốt
+    BORDER_RADIO        = SAGE_MUTED            # Viền nút chọn radio
+    BORDER_ACTIVE       = PINE_GREEN            # Viền khi được chọn active
+
+    # ==========================================
+    # 6. BÀN PHÍM SỐ & MÃ PIN (KEYPAD & PIN)
+    # ==========================================
+    KEY_BG              = (255, 255, 255)       # Nền phím số
+    KEY_BG_HOVER        = (235, 239, 236)       # Nền phím số khi hover
+    KEY_BORDER          = MIST_GRAY             # Viền phím số
+
+    # ==========================================
+    # 7. Ô NHẬP LIỆU (INPUT FIELDS)
+    # ==========================================
+    INPUT_BG            = (255, 255, 255)       # Nền ô nhập liệu
+    INPUT_BORDER        = MIST_GRAY             # Viền ô nhập liệu
+    INPUT_BORDER_FOCUS  = PINE_GREEN            # Viền ô nhập liệu khi chọn (focus)
+    INPUT_FOCUS         = PINE_GREEN            # Alias INPUT_BORDER_FOCUS
+    INPUT_PLACEHOLDER   = SAGE_MUTED            # Màu chữ placeholder
+
+    # ==========================================
+    # 8. HUY HIỆU & ICON (BADGES & ICONS)
+    # ==========================================
+    BADGE_BG_READY      = (230, 240, 235)       # Nền huy hiệu sẵn sàng
+    BADGE_TEXT_READY    = PINE_GREEN            # Chữ huy hiệu sẵn sàng
+    GREEN_BG            = (232, 240, 235)       # Nền icon xanh nhẹ
+    GREEN_BORDER        = SAGE_MUTED            # Viền icon
+    GREEN_TEXT          = PINE_GREEN            # Chữ icon
+    GREEN_CHECK         = PINE_GREEN            # Dấu tích xanh
+    GREEN_ICON          = PINE_GREEN            # Biểu tượng xanh
+
+    # ==========================================
+    # 9. KHUÔN MẶT BIỂU CẢM (ROBOT FACE)
+    # ==========================================
+    COLOR_BG            = SNOW_WHITE            # Nền khuôn mặt biểu cảm
+    COLOR_INK           = FOREST_GREEN          # Nét vẽ biểu cảm mắt, miệng BD-1
+    COLOR_TEETH         = COLOR_WHITE           # Răng biểu cảm cười
+
+    # ==========================================
+    # 10. ASSISTIVE TOUCH (NÚT NỔI & MENU ĐIỀU KHIỂN)
+    # ==========================================
+    MENU_SLATE          = PINE_GREEN
+    MENU_WARM_BG        = SNOW_WHITE
+
+
 class Theme:
     WIDTH = 800
     HEIGHT = 480
     FPS = 30
+
     def __init__(self):
         self._font_cache: Dict[Tuple[int, bool], pygame.font.Font] = {}
         self.init_fonts()
+
     def get_font(self, size: int, bold: bool = False) -> pygame.font.Font:
         key = (size, bold)
         if key in self._font_cache:
@@ -63,6 +121,7 @@ class Theme:
             font = pygame.font.Font(None, size)
         self._font_cache[key] = font
         return font
+
     def init_fonts(self):
         self.font_h1 = self.get_font(22, bold=True)
         self.font_h2 = self.get_font(18, bold=True)

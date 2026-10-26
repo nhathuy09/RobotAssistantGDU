@@ -23,12 +23,19 @@ RATE=48000
 TARGET_RATE=16000
 DOWNSAMPLE=int(RATE / TARGET_RATE)
 CHUNK_SIZE=1280 * DOWNSAMPLE
+# FORMAT = pyaudio.paInt16
+# CHANNELS = 2
+# RATE = 16000
+
+# TARGET_RATE = 16000
+# DOWNSAMPLE = 1
+# CHUNK_SIZE = 1280
 #==============================================================
 #====================== SPEAKER CONFIG ========================
 #==============================================================
-# SPEAKER_RATE = 24000
-SPEAKER_RATE = 48000
-GEMINI_SPEAKER_RATE = 24000
+SPEAKER_RATE = 24000
+# SPEAKER_RATE = 48000
+# GEMINI_SPEAKER_RATE = 24000
 SPEAKER_CHANNELS = 1
 #==============================================================
 #====================== WAKEWORD CONFIG =======================

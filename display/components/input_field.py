@@ -44,15 +44,18 @@ class InputField(BaseWidget):
         self.on_text_change = on_text_change
         self.on_submit = on_submit
 
-        self.padding = 10
-        self.border_radius = 14
+        self.padding = 14
+        self.border_radius = 12
 
-        self.eye_rect = pygame.Rect(self.rect.right - 44,self.rect.y,44, self.rect.height,)
         # Áp dụng quy tắc nhập liệu cho nội dung ban đầu.
         if self.is_numeric:
             self.value = "".join(c for c in self.value if c.isdigit())
         if self.max_length is not None:
             self.value = self.value[:self.max_length]
+
+    @property
+    def eye_rect(self) -> pygame.Rect:
+        return pygame.Rect(self.rect.right - 44, self.rect.y, 44, self.rect.height)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if not self.visible or not self.enabled:
@@ -138,13 +141,18 @@ class InputField(BaseWidget):
             if text_area.width > 0:
                 pygame.draw.line(surface,self.text_color,(cursor_x, cursor_y1),(cursor_x, cursor_y2),2,)
         surface.set_clip(old_clip)
+
         if self.has_eye_toggle and self.is_password:
-            self._draw_eye(surface,self.eye_rect.centerx,self.eye_rect.centery,self.show_password,)
+            self._draw_eye(surface, self.eye_rect.centerx, self.eye_rect.centery, self.show_password)
 
-    def _draw_eye(self, surface: pygame.Surface, cx: int,cy: int,showing: bool,):
-        color = Colors.BTN_PRIMARY if showing else Colors.TEXT_MUTED
+    def _draw_eye(self, surface: pygame.Surface, cx: int, cy: int, showing: bool):
+        color = Colors.PINE_GREEN if showing else Colors.SAGE_MUTED
 
-        pygame.draw.ellipse(surface,color,(cx - 10, cy - 6, 20, 12),2,)
+        # Vẽ hình dáng mắt mềm mại
+        eye_rect = pygame.Rect(cx - 11, cy - 6, 22, 13)
+        pygame.draw.ellipse(surface, color, eye_rect, width=2)
         pygame.draw.circle(surface, color, (cx, cy), 3)
+
         if not showing:
-            pygame.draw.line(surface,color,(cx - 10, cy + 7),(cx + 10, cy - 7),2,)
+            # Gạch chéo mảnh tinh tế cho trạng thái ẩn mật khẩu
+            pygame.draw.line(surface, color, (cx - 9, cy + 6), (cx + 9, cy - 6), 2)

@@ -1,9 +1,7 @@
-import json
 import os
 import socket
 import sys
 import threading
-from pathlib import Path
 from typing import Dict, Optional
 
 import pygame
@@ -16,6 +14,15 @@ from display.screens.connectivity_screen import ConnectivityScreen
 from display.screens.persona_screen import PersonaScreen
 from display.screens.system_screen import SystemScreen
 from display.screens.auth_screen import AuthScreen
+from display.screens.pin_screen import PinScreen
+from database.repositories import AdminRepository, SystemLogRepository, SettingsRepository
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
 
 try:
     from feature.wifi import WifiManager
@@ -24,39 +31,32 @@ except ImportError:
 
 
 class AppManager:
-    """
-    Trình quản lý trung tâm (Application Manager) điều phối:
-    - Quản lý vòng đời màn hình (Screen Lifecycle)
-    - Hệ thống nút ảo AssistiveTouch
-    - Quản lý cấu hình robot (robot_settings.json)
-    - Luồng lắng nghe UDP biểu cảm (cổng 5005)
-    - Vòng lặp sự kiện chính (Main Event Loop)
-    """
-
-    SETTINGS_PATH = Path(__file__).resolve().parent.parent / "robot_settings.json"
-    UDP_IP = "0.0.0.0"
-    UDP_PORT = 5005
 
     def __init__(self, width: int = 800, height: int = 480):
         self.width = width
         self.height = height
 
         self._enable_dpi_awareness()
-        pygame.init()
-
+        # pygame.init()
+        pygame.display.init()
+        pygame.font.init() 
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption("BD-1 Dashboard • Modular Architecture")
         self.clock = pygame.time.Clock()
 
         self.theme = Theme()
-        self.settings = self._load_settings()
+        # settings dict không còn dùng để lưu trữ; các module đọc thẳng từ DB repository
+        self.settings: Dict = {}
 
         # Quản lý Wi-Fi
         self.wifi = WifiManager() if WifiManager else None
 
+        # Trạng thái xác thực
+        self.is_authenticated: bool = False
+
         # Quản lý màn hình
         self.screens: Dict[str, BaseScreen] = {}
-        self.current_screen_name = "face"
+        self.current_screen_name = "face"   # sẽ được ghi đè trong _init_screens
         self.current_screen: Optional[BaseScreen] = None
 
         self._init_screens()
@@ -64,12 +64,13 @@ class AppManager:
         # Nút ảo nổi
         self.assistive_touch = AssistiveTouch(
             screen_size=(self.width, self.height),
-            on_navigate=self.switch_screen,
+            on_navigate=self._navigate_with_auth,
+            get_auth=lambda: self.is_authenticated,
         )
-
-        # UDP listener cho biểu cảm khuôn mặt
-        self.stop_event = threading.Event()
-        self.udp_thread = self._start_udp_thread()
+        self._pending_state: Optional[str] = None
+        self._state_lock = threading.Lock()
+        self._udp_stop = threading.Event()
+        self._start_udp_listener()
 
         self.running = False
 
@@ -86,37 +87,9 @@ class AppManager:
                 except Exception:
                     pass
 
-    def _load_settings(self) -> dict:
-        if not self.SETTINGS_PATH.exists():
-            return {}
-
-        try:
-            with self.SETTINGS_PATH.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except (OSError, json.JSONDecodeError) as err:
-            print(f"[SETTINGS] Không thể nạp {self.SETTINGS_PATH}: {err}")
-            return {}
-
     def persist_settings(self) -> Optional[str]:
-        """Lưu settings an toàn qua file tạm; trả None nếu thành công, chuỗi lỗi nếu thất bại."""
-        tmp_path = self.SETTINGS_PATH.with_name(self.SETTINGS_PATH.name + ".tmp")
-
-        try:
-            self.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with tmp_path.open("w", encoding="utf-8") as f:
-                json.dump(self.settings, f, ensure_ascii=False, indent=2)
-                f.write("\n")
-            os.replace(tmp_path, self.SETTINGS_PATH)
-            return None
-        except (OSError, TypeError, ValueError) as err:
-            print(f"[SETTINGS] Lưu thất bại: {err}")
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
-            return f"Lỗi lưu cấu hình: {err}"
+        """Phương thức tương thích ngược – không thực hiện gì vì settings nay lưu trong SQLite."""
+        return None
 
     def _init_screens(self):
         self.screens = {
@@ -126,23 +99,45 @@ class AppManager:
             "persona": PersonaScreen(self),
             "system": SystemScreen(self),
             "auth": AuthScreen(self),
+            "pin": PinScreen(self),
         }
+
+        # Xác định màn hình khởi động dựa trên trạng thái tài khoản trong Database
+        if not AdminRepository.is_registered():
+            # Chưa có tài khoản → bắt buộc đăng ký
+            self.current_screen_name = "auth"
+            start_kwargs = {"mode": "register"}
+        else:
+            # Đã có tài khoản → yêu cầu đăng nhập
+            self.current_screen_name = "auth"
+            start_kwargs = {"mode": "login"}
+
         self.current_screen = self.screens[self.current_screen_name]
-        self.current_screen.on_enter()
+        self.current_screen.on_enter(**start_kwargs)
 
     def register_screen(self, name: str, screen: BaseScreen):
         """Đăng ký hoặc thay thế một màn hình."""
         self.screens[name] = screen
 
     def switch_screen(self, name: str, **kwargs):
-        """Chuyển màn hình, gọi đúng hook rời màn hình và vào màn hình mới."""
+        """Chuyển màn hình, yêu cầu xác thực mã PIN cho các trang cấu hình."""
+        PROTECTED = {"persona", "system", "wifi", "faces_gallery"}
+        pin_verified = kwargs.pop("pin_verified", False)
+
+        if name in PROTECTED and not pin_verified:
+            # Nếu chưa đăng nhập tài khoản admin ban đầu
+            if not self.is_authenticated:
+                self.switch_screen("auth", mode="login")
+                return
+            # Đã đăng nhập nhưng cần nhập mã PIN để vào trang cấu hình
+            self.switch_screen("pin", target_screen=name, **kwargs)
+            return
+
         if name not in self.screens:
             print(f"[NAV] Không tìm thấy màn hình: {name}")
             return
 
         if self.current_screen is self.screens[name]:
-            # Cho phép gọi lại on_enter để đổi chế độ, ví dụ gallery=True,
-            # nhưng không gọi on_leave trên chính màn hình đang hiển thị.
             self.current_screen.on_enter(**kwargs)
             self.current_screen_name = name
             return
@@ -152,63 +147,80 @@ class AppManager:
 
         self.current_screen_name = name
         self.current_screen = self.screens[name]
-        self.assistive_touch.current_screen_id = name if hasattr(self, "assistive_touch") else name
+        self.assistive_touch.current_screen_id = name
         self.current_screen.on_enter(**kwargs)
 
-    def _start_udp_thread(self) -> threading.Thread:
-        def listen():
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def _navigate_with_auth(self, name: str) -> None:
+        """Điều hướng từ AssistiveTouch."""
+        self.switch_screen(name)
 
-            try:
-                sock.bind((self.UDP_IP, self.UDP_PORT))
-                sock.settimeout(0.5)
-                print(f"[UDP] Đang lắng nghe dữ liệu biểu cảm tại cổng {self.UDP_PORT}")
-            except OSError as err:
-                print(f"[UDP] Cổng {self.UDP_PORT} bận hoặc không thể mở: {err}")
-                sock.close()
-                return
+    def login(self) -> None:
+        """Đánh dấu đã xác thực và chuyển đến màn hình chính."""
+        self.is_authenticated = True
+        SystemLogRepository.log("INFO", "AUTH", "Người dùng đã đăng nhập vào hệ thống UI.")
+        self.switch_screen("face")
 
-            try:
-                while not self.stop_event.is_set():
-                    try:
-                        data, _ = sock.recvfrom(1024)
-                        state = data.decode("utf-8", errors="ignore").strip().upper()
-                        # Không cập nhật pygame/UI từ thread UDP; chuyển trạng thái
-                        # vào hàng đợi để xử lý ở main thread.
-                        if state:
-                            self._udp_states.append(state)
-                    except socket.timeout:
-                        continue
-                    except OSError:
-                        if not self.stop_event.is_set():
-                            print("[UDP] Socket đã đóng ngoài dự kiến.")
-                        break
-                    except Exception as err:
-                        print(f"[UDP ERROR] {err}")
-            finally:
-                sock.close()
+    def logout(self) -> None:
+        """Đăng xuất và quay về màn hình đăng nhập."""
+        self.is_authenticated = False
+        SystemLogRepository.log("INFO", "AUTH", "Người dùng đã đăng xuất.")
+        self.switch_screen("auth", mode="login")
 
-        self._udp_states = []
-        self._udp_states_lock = threading.Lock()
-        th = threading.Thread(target=listen, daemon=True, name="bd1-udp-listener")
-        th.start()
-        return th
+    # ------------------------------------------------------------------
+    # API biểu cảm trực tiếp — gọi từ bất kỳ thread nào (thread-safe)
+    # ------------------------------------------------------------------
 
-    def _process_udp_states(self):
-        """Áp dụng biểu cảm trong main thread để tránh truy cập pygame từ thread nền."""
-        with self._udp_states_lock:
-            states = self._udp_states[:]
-            self._udp_states.clear()
+    def set_face_state(self, state: str) -> None:
+        with self._state_lock:
+            self._pending_state = state.strip().upper()
 
-        if not states:
+    def _apply_pending_state(self) -> None:
+        """Đọc và áp dụng biểu cảm đang chờ vào FaceScreen (chỉ gọi từ main thread)."""
+        with self._state_lock:
+            state = self._pending_state
+            self._pending_state = None
+
+        if state is None:
             return
 
-        state = states[-1]  # Chỉ cần trạng thái mới nhất.
         face_scr = self.screens.get("face")
         if isinstance(face_scr, FaceScreen):
             face = getattr(face_scr, "face", None)
             if face is not None and hasattr(face, "set_state"):
                 face.set_state(state)
+
+    def _start_udp_listener(self, ip: str = "0.0.0.0", port: int = 5005) -> None:
+        """Lắng nghe trạng thái biểu cảm gửi qua giao thức UDP trong thread nền."""
+        def _listen():
+            sock = None
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind((ip, port))
+                sock.settimeout(0.5)
+                print(f"[APP] UDP Listener đang lắng nghe biểu cảm tại {ip}:{port}")
+                while not self._udp_stop.is_set():
+                    try:
+                        data, _ = sock.recvfrom(256)
+                        state = data.decode("utf-8", errors="ignore").strip().upper()
+                        self.set_face_state(state)
+                    except socket.timeout:
+                        continue
+                    except Exception as err:
+                        if not self._udp_stop.is_set():
+                            print(f"[APP UDP ERROR] {err}")
+            except OSError as e:
+                # Nếu cổng 5005 đã bị chiếm bởi tiến trình khác
+                print(f"[APP] Cổng UDP {port} không khả dụng ({e}) - Bỏ qua listener mạng.")
+            finally:
+                if sock:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+
+        listener = threading.Thread(target=_listen, daemon=True, name="AppUDPListener")
+        listener.start()
 
     def run(self):
         self.running = True
@@ -227,7 +239,8 @@ class AppManager:
                             self.running = False
                         break
 
-                    if self.assistive_touch.handle_event(event):
+                    kb_active = getattr(getattr(self.current_screen, "keyboard", None), "visible", False)
+                    if not kb_active and self.assistive_touch.handle_event(event):
                         continue
 
                     if self.current_screen:
@@ -236,7 +249,8 @@ class AppManager:
                 if not self.running:
                     break
 
-                self._process_udp_states()
+                # Áp dụng biểu cảm được yêu cầu từ thread ngoài
+                self._apply_pending_state()
 
                 if self.current_screen:
                     self.current_screen.update()
@@ -245,11 +259,7 @@ class AppManager:
                 if self.current_screen:
                     self.current_screen.draw(self.screen)
 
-                kb_active = (
-                    self.current_screen_name == "wifi"
-                    and isinstance(self.current_screen, ConnectivityScreen)
-                    and getattr(getattr(self.current_screen, "keyboard", None), "visible", False)
-                )
+                kb_active = getattr(getattr(self.current_screen, "keyboard", None), "visible", False)
                 if not kb_active:
                     self.assistive_touch.draw(self.screen)
 
@@ -262,18 +272,14 @@ class AppManager:
             self.stop()
 
     def stop(self):
-        """Dừng vòng lặp và các tài nguyên nền trước khi đóng pygame."""
+        """Dừng vòng lặp và giải phóng tài nguyên trước khi đóng pygame."""
         self.running = False
-        self.stop_event.set()
+        self._udp_stop.set()
 
         if self.wifi and hasattr(self.wifi, "stop"):
             try:
                 self.wifi.stop()
             except Exception as err:
                 print(f"[WIFI] Lỗi khi dừng WifiManager: {err}")
-
-        udp_thread = getattr(self, "udp_thread", None)
-        if udp_thread and udp_thread.is_alive():
-            udp_thread.join(timeout=1.0)
 
         pygame.quit()

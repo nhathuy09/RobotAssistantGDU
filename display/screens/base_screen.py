@@ -5,7 +5,7 @@ class BaseScreen:
     def __init__(self,app_manager):
         self.app_manager=app_manager
         self.theme=app_manager.theme
-    def on_enter(self):
+    def on_enter(self, *args, **kwargs):
         pass
     def on_leave(self):
         pass

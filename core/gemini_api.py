@@ -6,12 +6,49 @@ import base64
 import websockets
 from config import URL, MODEL_NAME
 from controller.motion_tools import TOOL_DECLARATIONS
+
+try:
+    from database.repositories import PersonaRepository
+except ImportError:
+    PersonaRepository = None
+
+DEFAULT_FALLBACK_PROMPT = """Bạn là alexa, một trợ lý robot thông minh có thể trả lời bất cứ câu hỏi trong mọi lĩnh vực, đặc biệt là về thông tin và dịch vụ của Trường Đại học Gia Định (GDU), nhưng chỉ đề cập tới thông tin trường Gia Định khi người dùng hỏi. 
+[QUY TẮC GIAO TIẾP & HÀNH ĐỘNG]
+1. Giao tiếp: Phản hồi bằng giọng nói cực kỳ ngắn gọn, tự nhiên (tối đa 2-3 câu). Luôn xưng hô thân thiện, hỏi tên người dùng trong lần đầu tương tác, tuyệt đối không tự ý gọi tool di chuyển/ biểu diễn nếu không có lý do rõ ràng.
+2. Vận động (quan trọng): Chỉ gọi tool di chuyển/biểu diễn khi người dùng ra lệnh trực tiếp. Không tự ý gọi tool nếu không có lý do rõ ràng.
+3. Nguyên tắc dữ liệu: Tuyệt đối chỉ dùng thông tin được cung cấp bên dưới để tư vấn về GDU. Nếu người dùng hỏi ngoài phạm vi dữ liệu, hãy khéo léo hẹn họ liên hệ phòng tuyển sinh.
+4. Về phần kiến thức nội bộ về GDU: bạn chỉ đề cập tới thông tin này khi người dùng yêu cầu, hoặc khi người dùng hỏi về GDU. Không được tự ý nhắc tới kiến thức nội bộ về GDU nếu không có ngữ cảnh.
+[KIẾN THỨC NỘI BỘ VỀ GDU]
+
+--- 1. THÔNG TIN CHUNG ---
+- Tên trường: Trường Đại học Gia Định (Gia Dinh University - GDU).
+- Lịch sử: Là ĐH tư thục tại TP.HCM, thành lập năm 2007 (tiền thân là ĐH Tư thục Công nghệ - Thông tin Gia Định). Năm 2026 kỷ niệm 19 năm phát triển.
+- Triết lý giáo dục: "Chọn lọc (kiến thức trọng tâm) – Ứng dụng (chú trọng thực hành) – Đại chúng (cơ hội học tập với mức phí phù hợp)".
+- Địa điểm: Cơ sở Tân Sơn Nhất (371 Nguyễn Kiệm, Phường Hạnh Thông, TP.HCM) - vị trí trung tâm, gần sân bay.
+- Chất lượng: Đạt chuẩn kiểm định quốc gia ở cả cấp cơ sở và cấp chương trình đào tạo.
+
+--- 2. CHƯƠNG TRÌNH ĐÀO TẠO ---
+- Quy mô: Đa ngành, đa lĩnh vực với 6 Khoa chính:
+  + Khoa Công nghệ thông tin (CNTT, IoT, AI, Kỹ thuật phần mềm...)
+  + Khoa Quản trị - Marketing
+  + Khoa Tài chính - Thương mại
+  + Khoa Khoa học Xã hội & Ngôn ngữ Quốc tế
+  + Khoa Truyền thông số
+  + Khoa Khoa học Sức khỏe
+- Lợi thế cạnh tranh: Thời gian đào tạo tinh gọn (từ 3 năm). Lộ trình: "Học -> làm dự án -> thực tập -> đi làm".
+- Trải nghiệm: Sinh viên có 2 học kỳ thực tế tại doanh nghiệp.
+
+--- 3. HỌC PHÍ ---
+- Mức phí tham khảo: Từ khoảng 1,1 triệu VNĐ/tín chỉ.
+- Lưu ý: Học phí linh hoạt thay đổi tùy thuộc vào chương trình, số tín chỉ và từng khóa cụ thể.
+"""
+
 CONNECT_TIMEOUT = 10
 CONTEXT_COMPRESSION_TRIGGER_TOKENS = 25000
 CONTEXT_COMPRESSION_WINDOW_TOKENS = 8000
 class GeminiAPI:
     MUTE_COOLDOWN = 0.6
-    def __init__(self, speaker, resumption_handle=None, tool_handlers=None, face_client=None):
+    def __init__(self, speaker, resumption_handle=None, tool_handlers=None, face_client=None, system_instruction=None):
         self.ws = None
         self.speaker = speaker
         self.turn_complete = asyncio.Event()
@@ -25,6 +62,7 @@ class GeminiAPI:
         self.force_sleep = asyncio.Event()
         self.tool_handlers = tool_handlers or {}
         self.face_client = face_client
+        self.system_instruction = system_instruction
         
         self.cmd_queue = asyncio.Queue()
         self.hardware_worker_task = None
@@ -40,6 +78,21 @@ class GeminiAPI:
             print("[GEMINI] Đang thử tiếp tục ngữ cảnh phiên trước đó...")
         else:
             print("[GEMINI] Bắt đầu phiên hội thoại mới.")
+
+        # Lấy prompt động từ active Persona trong Database
+        prompt_text = self.system_instruction
+        if not prompt_text:
+            if PersonaRepository:
+                try:
+                    prompt_text = PersonaRepository.get_system_instruction()
+                    active_p = PersonaRepository.get_active_persona()
+                    role_name = active_p.get("name", "Mặc định") if active_p else "Mặc định"
+                    print(f"[GEMINI] Đã nạp Persona từ Database: '{role_name}'.")
+                except Exception as e:
+                    print(f"[GEMINI] Lỗi khi nạp Persona từ DB ({e}), dùng prompt dự phòng.")
+                    prompt_text = DEFAULT_FALLBACK_PROMPT
+            else:
+                prompt_text = DEFAULT_FALLBACK_PROMPT
     
         setup_msg = {
             "setup": {
@@ -75,37 +128,7 @@ class GeminiAPI:
                 },
                 "systemInstruction": {
                     "parts": [
-                        {"text": """Bạn là alexa, một trợ lý ảo thông minh có thể trả lời bất cứ câu hỏi trong mọi lĩnh vực, đặc biệt là về thông tin và dịch vụ của Trường Đại học Gia Định (GDU), nhưng chỉ đề cập tới thông tin trường Gia Định khi người dùng hỏi. 
-[QUY TẮC GIAO TIẾP & HÀNH ĐỘNG]
-1. Giao tiếp: Phản hồi bằng giọng nói cực kỳ ngắn gọn, tự nhiên (tối đa 2-3 câu). Luôn xưng hô thân thiện, hỏi tên người dùng trong lần đầu tương tác, tuyệt đối không tự ý gọi tool di chuyển/ biểu diễn nếu không có lý do rõ ràng.
-2. Vận động (quan trọng): Chỉ gọi tool di chuyển/biểu diễn khi người dùng ra lệnh trực tiếp. Không tự ý gọi tool nếu không có lý do rõ ràng.
-3. Nguyên tắc dữ liệu: Tuyệt đối chỉ dùng thông tin được cung cấp bên dưới để tư vấn về GDU. Nếu người dùng hỏi ngoài phạm vi dữ liệu, hãy khéo léo hẹn họ liên hệ phòng tuyển sinh.
-4. Về phần kiến thức nội bộ  về GDU: bạn chỉ đề cập tới thông tin này khi nguời dùng yêu cầu, hoặc khi người dùng hỏi về GDU. Không được tự ý nhắc tới kiến thức nội bộ về GDU nếu không có ngữ cảnh. Nếu người dùng hỏi ngoài phạm vi dữ liệu, hãy khéo léo hẹn họ liên hệ phòng tuyển sinh.
-[KIẾN THỨC NỘI BỘ VỀ GDU]
-
---- 1. THÔNG TIN CHUNG ---
-- Tên trường: Trường Đại học Gia Định (Gia Dinh University - GDU).
-- Lịch sử: Là ĐH tư thục tại TP.HCM, thành lập năm 2007 (tiền thân là ĐH Tư thục Công nghệ - Thông tin Gia Định). Năm 2026 kỷ niệm 19 năm phát triển.
-- Triết lý giáo dục: "Chọn lọc (kiến thức trọng tâm) – Ứng dụng (chú trọng thực hành) – Đại chúng (cơ hội học tập với mức phí phù hợp)".
-- Địa điểm: Cơ sở Tân Sơn Nhất (371 Nguyễn Kiệm, Phường Hạnh Thông, TP.HCM) - vị trí trung tâm, gần sân bay.
-- Chất lượng: Đạt chuẩn kiểm định quốc gia ở cả cấp cơ sở và cấp chương trình đào tạo.
-
---- 2. CHƯƠNG TRÌNH ĐÀO TẠO ---
-- Quy mô: Đa ngành, đa lĩnh vực với 6 Khoa chính:
-  + Khoa Công nghệ thông tin (CNTT, IoT, AI, Kỹ thuật phần mềm...)
-  + Khoa Quản trị - Marketing
-  + Khoa Tài chính - Thương mại
-  + Khoa Khoa học Xã hội & Ngôn ngữ Quốc tế
-  + Khoa Truyền thông số
-  + Khoa Khoa học Sức khỏe
-- Lợi thế cạnh tranh: Thời gian đào tạo tinh gọn (từ 3 năm). Lộ trình: "Học -> làm dự án -> thực tập -> đi làm".
-- Trải nghiệm: Sinh viên có 2 học kỳ thực tế tại doanh nghiệp.
-
---- 3. HỌC PHÍ ---
-- Mức phí tham khảo: Từ khoảng 1,1 triệu VNĐ/tín chỉ.
-- Lưu ý: Học phí linh hoạt thay đổi tùy thuộc vào chương trình, số tín chỉ và từng khóa cụ thể.
-"""
-                        }
+                        {"text": prompt_text}
                     ]
                 }
             }
@@ -121,24 +144,12 @@ class GeminiAPI:
 
     def mic_should_be_muted(self):
         return (self.ai_speaking or self.speaker.is_busy() or time.monotonic() < self.mic_reopen_at)
-    # async def _auto_return_idle(self, seq: int, delay: float):
-    #     await asyncio.sleep(delay)
-    #     if seq != self._action_seq:
-    #         return  
-    #     idle_handler = self.tool_handlers.get("idle_pose")
-    #     if idle_handler is None:
-    #         return
-    #     loop = asyncio.get_running_loop()
-    #     print("[TOOL] Tự động quay về idle_pose sau động tác biểu diễn.")
-    #     try:
-    #         await loop.run_in_executor(None, idle_handler, {})
-    #     except Exception as e:
-    #         logging.error(f"[TOOL] Lỗi khi tự động về idle: {e}")
     def _estimate_action_duration(self, name: str, args: dict) -> float:
         dur = float(args.get("duration", 0))
         if dur > 0:
             return dur
-        return 2.0 if name in ["wave_hello"] else 0.5        
+        # return 2.0 if name in ["wave_hello"] else 0.5     
+        return 2.0   
     async def _handle_tool_call(self, tool_call):
         responses = []
         calls = tool_call.get("functionCalls", [])
@@ -163,10 +174,10 @@ class GeminiAPI:
             start_at = start_at + dur
             total_duration += dur
             responses.append({"id": call_id, "name": name, "response": {"status": "ok"}})
-            if name in ["wave_hello"]:
-                self.cmd_queue.put_nowait(("idle_pose", {}))
-                print("[SYSTEM] Tự động chèn 'idle_pose' vào để thu tay về.")
-                total_duration += 0.5
+            # if name in ["wave_hello"]:
+            #     self.cmd_queue.put_nowait(("idle_pose", {}))
+            #     print("[SYSTEM] Tự động chèn 'idle_pose' vào để thu tay về.")
+            #     total_duration += 0.5
         self._queue_free_at = start_at
         self.mic_reopen_at = max(self.mic_reopen_at, time.monotonic() + total_duration + 0.5)
         await self.ws.send(json.dumps({"toolResponse": {"functionResponses": responses}}))
