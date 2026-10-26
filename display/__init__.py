@@ -1,7 +1,7 @@
 from display.theme import Theme, Colors
 from display.app_manager import AppManager
 from display.screens import (
-   auth_screen,
+    auth_screen,
     base_screen,
     connectivity_screen,
     face_screen,
@@ -9,7 +9,7 @@ from display.screens import (
     system_screen,
 )
 from display.components import (
-    assistive_touch,
+    asissitive_touch,
     base_widget,
     button,
     card,

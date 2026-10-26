@@ -84,9 +84,12 @@ class Microphone:
         print("[MICROPHONE] Microphone stream started.")
     def read(self):
         pcm_data = self.stream.read(CHUNK_SIZE, exception_on_overflow=False)
-        audio_np_32 = np.frombuffer(pcm_data, dtype=np.int32)
-        mono_32 = audio_np_32[::2].astype(np.float32)
-        dc_removed, self._hp_zi = lfilter(self._hp_b, self._hp_a, mono_32, zi=self._hp_zi)
+        # audio_np_32 = np.frombuffer(pcm_data, dtype=np.int32)
+        # mono_32 = audio_np_32[::2].astype(np.float32)
+        audio_np=np.frombuffer(pcm_data, dtype=np.int32)
+        stereo=audio_np.reshape(-1, 2).astype(np.float32)
+        mono=(stereo[:, 0] + stereo[:, 1]) * 0.5
+        dc_removed, self._hp_zi = lfilter(self._hp_b, self._hp_a, mono, zi=self._hp_zi)
         base_scaled = dc_removed / 65536.0
         agc_out = self.agc.process(base_scaled)
         pre_filter = np.clip(agc_out, -32768.0, 32767.0)

@@ -54,16 +54,16 @@ TOOL_DECLARATIONS = [
         "description": "Dừng ngay lập tức mọi chuyển động của robot.",
         "parameters": {"type": "OBJECT", "properties": {}}
     },
-    {
-        "name": "wave_hello",
-        "description": "Vẫy tay chào khi gặp người dùng lần đầu hoặc khi được yêu cầu chào.",
-        "parameters": {"type": "OBJECT", "properties": {}}
-    },
-    {
-        "name": "idle_pose",
-        "description": "Trở về tư thế nghỉ/chờ mặc định.",
-        "parameters": {"type": "OBJECT", "properties": {}}
-    },
+    # {
+    #     "name": "wave_hello",
+    #     "description": "Vẫy tay chào khi gặp người dùng lần đầu hoặc khi được yêu cầu chào.",
+    #     "parameters": {"type": "OBJECT", "properties": {}}
+    # },
+    # {
+    #     "name": "idle_pose",
+    #     "description": "Trở về tư thế nghỉ/chờ mặc định.",
+    #     "parameters": {"type": "OBJECT", "properties": {}}
+    # },
     {
         "name": "end_conversation",
         "description": "Gọi hàm này ngay lập tức khi người dùng nói lời chào tạm biệt, yêu cầu dừng trò chuyện, hoặc kêu robot đi ngủ, nghỉ ngơi.",

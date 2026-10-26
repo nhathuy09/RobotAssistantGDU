@@ -1,0 +1,29 @@
+{
+  "admin": {
+    "username": "nhathuy",
+    "password_hash": "deacff44771b77300dd7d5b6ba6df82117c56a47108a4a32d0ee531ece12d349",
+    "pin_hash": "deacff44771b77300dd7d5b6ba6df82117c56a47108a4a32d0ee531ece12d349"
+  },
+  "persona": {
+    "selected_role": "aiot",
+    "custom_role_name": "Vai trò Tùy chỉnh"
+  },
+  "face_theme": {
+    "preset_id": "custom",
+    "ink_color": [
+      24,
+      61,
+      48
+    ],
+    "bg_color": [
+      245,
+      247,
+      244
+    ],
+    "teeth_color": [
+      255,
+      255,
+      255
+    ]
+  }
+}

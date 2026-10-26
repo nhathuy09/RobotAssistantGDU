@@ -1,22 +1,12 @@
-import pygame
-from typing import Optional, Tuple
-from display.components.assistive_touch import AssistiveTouch
-pygame.init()
-screen = pygame.display.set_mode((800, 480))
-assistive_touch = AssistiveTouch(screen_size=(800, 480))
-running = True
-clock = pygame.time.Clock()
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        assistive_touch.handle_event(event)
+import sys
+from display.app_manager import AppManager
 
-    assistive_touch.update()
 
-    screen.fill((205, 214, 224))
-    assistive_touch.draw(screen)
-    pygame.display.flip()
-    clock.tick(30)
+def main():
+    """Điểm khởi chạy ứng dụng BD-1 Dashboard với kiến trúc module chuẩn."""
+    app = AppManager(width=800, height=480)
+    app.run()
 
-pygame.quit()
+
+if __name__ == "__main__":
+    main()

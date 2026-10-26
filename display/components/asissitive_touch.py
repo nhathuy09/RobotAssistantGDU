@@ -7,8 +7,16 @@ from display.theme import Colors
 
 
 class AssistiveTouch(BaseWidget):
-    ICON_DIR = Path(__file__).resolve().parent.parent.parent / "assets" / "icon"
-    FONT_DIR = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts"
+    _MODULE_DIR = Path(__file__).resolve().parent.parent
+    ICON_DIR = _MODULE_DIR / "assets" / "icon"
+    if not ICON_DIR.exists():
+        ICON_DIR = _MODULE_DIR.parent / "assets" / "icon"
+
+    FONT_DIR = _MODULE_DIR / "assets" / "font"
+    if not FONT_DIR.exists():
+        FONT_DIR = _MODULE_DIR.parent / "assets" / "font"
+        if not FONT_DIR.exists():
+            FONT_DIR = _MODULE_DIR.parent / "assets" / "fonts"
 
     MENU_W = 336
     MENU_H = 406
@@ -47,6 +55,7 @@ class AssistiveTouch(BaseWidget):
         self,
         screen_size: Tuple[int, int] = (800, 480),
         on_navigate: Optional[Callable[[str], None]] = None,
+        get_auth: Optional[Callable[[], bool]] = None,
     ):
         self.screen_w, self.screen_h = screen_size
         center_x, center_y = self.screen_w // 2, self.screen_h - 45
@@ -54,6 +63,7 @@ class AssistiveTouch(BaseWidget):
 
         self.pos = [float(center_x), float(center_y)]
         self.on_navigate = on_navigate
+        self.get_auth = get_auth  # callable() -> bool; None = luôn cho phép
 
         self.menu_open = False
         self.animation_progress = 0.0
@@ -212,10 +222,11 @@ class AssistiveTouch(BaseWidget):
         def a(base):
             return max(0, min(255, int(base * self.alpha)))
 
-        pygame.draw.circle(btn_surf, (35, 45, 56, a(195)), (bcx, bcy), 29)
-        pygame.draw.circle(btn_surf, (68, 82, 96, a(215)), (bcx, bcy), 23)
-        pygame.draw.circle(btn_surf, (140, 155, 170, a(235)), (bcx, bcy), 17)
-        pygame.draw.circle(btn_surf, (255, 255, 255, a(255)), (bcx, bcy), 11)
+        # Vòng tròn đồng tâm theo bảng màu Forest Green / Pine Green / Sage / Snow White
+        pygame.draw.circle(btn_surf, (24, 61, 48, a(210)), (bcx, bcy), 29)    # Forest Green (#183D30)
+        pygame.draw.circle(btn_surf, (40, 87, 67, a(230)), (bcx, bcy), 23)    # Pine Green (#285743)
+        pygame.draw.circle(btn_surf, (170, 185, 173, a(245)), (bcx, bcy), 17) # Sage Green (#AAB9AD)
+        pygame.draw.circle(btn_surf, (245, 247, 244, a(255)), (bcx, bcy), 11) # Snow White (#F5F7F4)
 
         surface.blit(btn_surf, (cx - 32, cy - 32))
 
@@ -223,50 +234,61 @@ class AssistiveTouch(BaseWidget):
         p = self.animation_progress
         eased_p = p**2 * (3 - 2 * p)
 
-        # 1. Overlay tối màu
+        # 1. Overlay tối màu nhẹ (Forest Green sương tối)
         overlay = pygame.Surface((self.screen_w, self.screen_h), pygame.SRCALPHA)
-        overlay.fill((43, 48, 58, round(56 * eased_p)))
+        overlay.fill((24, 61, 48, round(56 * eased_p)))
         surface.blit(overlay, (0, 0))
 
-        # 2. Khung menu
+        # 2. Khung menu nền Snow White viền Mist Gray
         rect = self.compute_menu_rect()
         panel_surf = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
-        pygame.draw.rect(panel_surf, (247, 245, 240), (0, 0, rect.w, rect.h), border_radius=26)
-        pygame.draw.rect(panel_surf, (213, 215, 210), (0, 0, rect.w, rect.h), 1, border_radius=26)
+        pygame.draw.rect(panel_surf, Colors.SNOW_WHITE, (0, 0, rect.w, rect.h), border_radius=26)
+        pygame.draw.rect(panel_surf, Colors.MIST_GRAY, (0, 0, rect.w, rect.h), 1, border_radius=26)
 
-        title = self.font_title.render("Điều khiển nhanh", True, Colors.TEXT_DARK)
+        title = self.font_title.render("Điều khiển nhanh", True, Colors.FOREST_GREEN)
         panel_surf.blit(title, (rect.w // 2 - title.get_width() // 2, round(rect.h * 0.068)))
 
         # 3. Vẽ các icon & label
+        PROTECTED = {"persona", "system", "wifi", "faces_gallery"}
+        authed = self.get_auth() if callable(self.get_auth) else True
         for idx, item in enumerate(self.ITEMS):
             icx, icy = self._item_center(idx, pygame.Rect(0, 0, rect.w, rect.h))
             is_active = (item["id"] == self.current_screen_id)
+            is_locked = item["id"] in PROTECTED and not authed
             radius = round(rect.w * 0.102)
 
+            # Phối màu tinh tế theo palette mới
             icon_bg, icon_col = {
-                "home": ((232, 237, 240), Colors.MENU_SLATE),
-                "wifi": ((232, 237, 240), Colors.MENU_SLATE),
-                "config": (Colors.GREEN_BG, Colors.GREEN_ICON),
-                "persona": (Colors.GREEN_BG, Colors.GREEN_ICON),
-                "face": (Colors.GREEN_BG, Colors.GREEN_ICON),
-                "faces": (Colors.GREEN_BG, Colors.GREEN_ICON),
-                "system": ((232, 237, 240), Colors.MENU_SLATE),
-                "exit": (Colors.MENU_WARM_BG, Colors.TEXT_DARK),
-                "close": (Colors.MENU_WARM_BG, Colors.TEXT_DARK),
-            }.get(item["icon"], ((232, 237, 240), Colors.MENU_SLATE))
+                "home": (Colors.MIST_GRAY, Colors.FOREST_GREEN),
+                "wifi": (Colors.MIST_GRAY, Colors.FOREST_GREEN),
+                "config": (Colors.PINE_GREEN_LIGHT, Colors.PINE_GREEN),
+                "persona": (Colors.PINE_GREEN_LIGHT, Colors.PINE_GREEN),
+                "face": (Colors.PINE_GREEN_LIGHT, Colors.PINE_GREEN),
+                "faces": (Colors.PINE_GREEN_LIGHT, Colors.PINE_GREEN),
+                "system": (Colors.MIST_GRAY, Colors.FOREST_GREEN),
+                "exit": (Colors.MIST_GRAY, Colors.FOREST_GREEN),
+                "close": (Colors.MIST_GRAY, Colors.FOREST_GREEN),
+            }.get(item["icon"], (Colors.MIST_GRAY, Colors.FOREST_GREEN))
 
-            if is_active:
-                icon_bg = Colors.GREEN_TEXT
+            if is_locked:
+                icon_bg = (230, 233, 230)
+                icon_col = Colors.SAGE_MUTED
+            elif is_active:
+                icon_bg = Colors.PINE_GREEN
                 icon_col = Colors.COLOR_WHITE
 
             pygame.draw.circle(panel_surf, icon_bg, (icx, icy), radius)
-            outline = Colors.MENU_SLATE if is_active else Colors.CARD_BORDER
+            outline = Colors.FOREST_GREEN if is_active else Colors.MIST_GRAY
             pygame.draw.circle(panel_surf, outline, (icx, icy), radius, 2 if is_active else 1)
 
-            target_icon_size = max(18, round(radius * 0.82))
+            target_icon_size = max(20, round(radius * 0.95))
             self._draw_icon(panel_surf, item["icon"], icx, icy, icon_col, target_size=target_icon_size)
 
-            lbl_col = Colors.GREEN_TEXT if is_active else Colors.TEXT_DARK
+            # Vẽ biểu tượng ổ khoá nhỏ góc dưới-phải nếu item bị khoá
+            if is_locked:
+                self._draw_lock_badge(panel_surf, icx + radius - 4, icy + radius - 4)
+
+            lbl_col = Colors.PINE_GREEN if is_active else (Colors.SAGE_MUTED if is_locked else Colors.FOREST_GREEN)
             lbl = self.font_label.render(item["label"], True, lbl_col)
             panel_surf.blit(lbl, (icx - lbl.get_width() // 2, icy + radius + round(rect.h * 0.025)))
 
@@ -294,10 +316,25 @@ class AssistiveTouch(BaseWidget):
 
         file_candidates = self.ICON_MAP.get(icon_name, [f"{icon_name}.svg", f"{icon_name}.png"])
         found_path = None
-        for filename in file_candidates:
-            p = self.ICON_DIR / filename
-            if p.exists():
-                found_path = p
+
+        search_dirs = [
+            self.ICON_DIR,
+            Path(__file__).resolve().parent.parent / "assets" / "icon",
+            Path(__file__).resolve().parent.parent.parent / "assets" / "icon",
+            Path("display/assets/icon").resolve(),
+            Path("assets/icon").resolve(),
+        ]
+        seen_dirs = set()
+        for d in search_dirs:
+            if not d.exists() or d in seen_dirs:
+                continue
+            seen_dirs.add(d)
+            for filename in file_candidates:
+                p = d / filename
+                if p.exists():
+                    found_path = p
+                    break
+            if found_path:
                 break
 
         if not found_path:
@@ -369,6 +406,15 @@ class AssistiveTouch(BaseWidget):
         elif icon_type in ("close", "exit"):
             pygame.draw.line(surface, color, (cx - 7, cy - 7), (cx + 7, cy + 7), 2)
             pygame.draw.line(surface, color, (cx - 7, cy + 7), (cx + 7, cy - 7), 2)
+
+    @staticmethod
+    def _draw_lock_badge(surface: pygame.Surface, cx: int, cy: int):
+        """Vẽ biểu tượng khoá tròn nhỏ trên góc icon bị khoá."""
+        pygame.draw.circle(surface, Colors.MIST_GRAY, (cx, cy), 8)
+        pygame.draw.circle(surface, Colors.SAGE_MUTED, (cx, cy), 8, 1)
+        col = Colors.FOREST_GREEN
+        pygame.draw.rect(surface, col, (cx - 3, cy - 1, 6, 5), border_radius=1)
+        pygame.draw.arc(surface, col, (cx - 2, cy - 4, 4, 4), 0, 3.14159, 1)
 
 if __name__ == "__main__":
     pygame.init()

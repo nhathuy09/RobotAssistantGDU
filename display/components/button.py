@@ -19,6 +19,7 @@ class Button(BaseWidget):
                  enabled:bool=True):
         super().__init__(rect,visible,enabled)
         self.text=text
+        self.theme=theme
         self.font=font
         self.on_click=on_click
         self.primary=primary
@@ -27,17 +28,17 @@ class Button(BaseWidget):
         if bg_color:
             self.bg_color=bg_color
         else:
-            self.bg_color=Color.BTN_PRIMARY if primary else Color.CARD_BG
+            self.bg_color=Colors.BTN_PRIMARY if primary else Colors.CARD_BG
         
         if fg_color:
             self.fg_color=fg_color
         else:
-            self.fg_color=Color.COLOR_TEETH if primary else Color.TEXT_DARK
+            self.fg_color=Colors.COLOR_WHITE if primary else Colors.TEXT_DARK
         
         if border_color:
             self.border_color=border_color
         else:
-            self.border_color=bg_color if primary else Color.CARD_BORDER
+            self.border_color=bg_color if primary else Colors.CARD_BORDER
         self.is_hovered=False
         self.is_pressed=False
     
@@ -61,21 +62,26 @@ class Button(BaseWidget):
                         self.on_click()
                 return True
         return False
-    def draw(self,surface:pygame.Surface):
+    def draw(self, surface: pygame.Surface):
         if not self.visible:
             return
-        color=self.bg_color
+        color = self.bg_color
         if not self.enabled:
-            color=Color.COLOR_C8CCC8
-        if self.is_pressed:
-            color=Color.BTN_PRIMARY_HOVER
-        if self.is_hovered:
-            color=Color.BTN_PRIMARY_HOVER
-        pygame.draw.rect(suface,color,self.rect,border_radius=self.border_radius)
+            color = Colors.MIST_GRAY
+        elif self.is_pressed or self.is_hovered:
+            if self.primary:
+                color = Colors.BTN_PRIMARY_HOVER
+            else:
+                color = Colors.MIST_GRAY
+
+        pygame.draw.rect(surface, color, self.rect, border_radius=self.border_radius)
         if self.border_color:
-            pygame.draw.rect(surface,self.border_color,self.rect,1,border_radius=self.border_radius)
-        if self.text and self.font:
-            font = self.font or self.theme.get_font(14, bold=True)
+            pygame.draw.rect(surface, self.border_color, self.rect, 1, border_radius=self.border_radius)
+
+        if self.text:
+            font = self.font
+            if font is None:
+                font = self.theme.get_font(14, bold=True) if self.theme else pygame.font.Font(None, 14)
             text_surf = font.render(self.text, True, self.fg_color)
             text_rect = text_surf.get_rect(center=self.rect.center)
             surface.blit(text_surf, text_rect)
