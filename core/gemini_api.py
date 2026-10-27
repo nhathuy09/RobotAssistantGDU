@@ -6,6 +6,7 @@ import base64
 import websockets
 from config import URL, MODEL_NAME
 from controller.motion_tools import TOOL_DECLARATIONS
+from core.reconnect import GeminiSetupError, GeminiDisconnected
 
 try:
     from database.repositories import PersonaRepository
@@ -44,11 +45,20 @@ DEFAULT_FALLBACK_PROMPT = """Bạn là alexa, một trợ lý robot thông minh 
 """
 
 CONNECT_TIMEOUT = 10
+SEND_TIMEOUT = 5
+WAKE_GREETING_PROMPT = (
+    "Người dùng vừa gọi từ đánh thức Alexa. Hãy chủ động đáp lại ngay bằng "
+    "một lời chào tiếng Việt ngắn, tự nhiên, đúng vai trò và phong cách hiện tại, "
+    "rồi mời người dùng trò chuyện, tối đa 1–2 câu. "
+    "Nếu đã có ngữ cảnh trò chuyện, chỉ cần nói rằng bạn đang lắng nghe, "
+    "không giới thiệu lại hoặc hỏi lại tên đã biết. "
+    "Không nhắc đến chỉ dẫn này, không gọi công cụ hay thực hiện chuyển động."
+)
 CONTEXT_COMPRESSION_TRIGGER_TOKENS = 25000
 CONTEXT_COMPRESSION_WINDOW_TOKENS = 8000
 class GeminiAPI:
     MUTE_COOLDOWN = 0.6
-    def __init__(self, speaker, resumption_handle=None, tool_handlers=None, face_client=None, system_instruction=None):
+    def __init__(self, speaker, resumption_handle=None, tool_handlers=None, face_client=None, system_instruction=None, handled_tool_calls=None):
         self.ws = None
         self.speaker = speaker
         self.turn_complete = asyncio.Event()
@@ -63,12 +73,15 @@ class GeminiAPI:
         self.tool_handlers = tool_handlers or {}
         self.face_client = face_client
         self.system_instruction = system_instruction
+        self._greeting_turn = False
+        # Shared across resumed connections: never execute the same tool ID twice.
+        self.handled_tool_calls = handled_tool_calls if handled_tool_calls is not None else set()
         
         self.cmd_queue = asyncio.Queue()
         self.hardware_worker_task = None
         self._queue_free_at = time.monotonic() 
     async def connect(self):
-        self.ws = await asyncio.wait_for(websockets.connect(URL), timeout=CONNECT_TIMEOUT)
+        self.ws = await asyncio.wait_for(websockets.connect(URL, close_timeout=2), timeout=CONNECT_TIMEOUT)
         print("[GEMINI] Connected to Gemini API.")
         await self.setup()
         self.hardware_worker_task = asyncio.create_task(self._hardware_worker())
@@ -134,13 +147,25 @@ class GeminiAPI:
             }
         }
         await asyncio.wait_for(self.ws.send(json.dumps(setup_msg)), timeout=CONNECT_TIMEOUT)
-        await asyncio.wait_for(self.ws.recv(), timeout=CONNECT_TIMEOUT)
+        reply = json.loads(await asyncio.wait_for(self.ws.recv(), timeout=CONNECT_TIMEOUT))
+        if "setupComplete" not in reply:
+            raise GeminiSetupError(reply.get("error", {}).get("code"))
         print("[GEMINI] Setup completed.")
+
+    async def send_greeting(self):
+        """Trigger a spoken opening after setup, without waiting for mic input."""
+        self._greeting_turn = True
+        self.turn_complete.clear()
+        message = {"clientContent": {
+            "turns": [{"role": "user", "parts": [{"text": WAKE_GREETING_PROMPT}]}],
+            "turnComplete": True,
+        }}
+        await asyncio.wait_for(self.ws.send(json.dumps(message)), timeout=SEND_TIMEOUT)
 
     async def send_audio(self, audio_data):
         audio_b64 = base64.b64encode(audio_data.tobytes()).decode("utf-8")
         msg = {"realtimeInput": {"audio": {"mimeType": "audio/pcm;rate=16000", "data": audio_b64}}}
-        await self.ws.send(json.dumps(msg))
+        await asyncio.wait_for(self.ws.send(json.dumps(msg)), timeout=SEND_TIMEOUT)
 
     def mic_should_be_muted(self):
         return (self.ai_speaking or self.speaker.is_busy() or time.monotonic() < self.mic_reopen_at)
@@ -148,8 +173,7 @@ class GeminiAPI:
         dur = float(args.get("duration", 0))
         if dur > 0:
             return dur
-        # return 2.0 if name in ["wave_hello"] else 0.5     
-        return 2.0   
+        return 2.0 if name in ["wave_hello"] else 0.5        
     async def _handle_tool_call(self, tool_call):
         responses = []
         calls = tool_call.get("functionCalls", [])
@@ -159,6 +183,16 @@ class GeminiAPI:
             name = fc.get("name")
             args = fc.get("args", {}) or {}
             call_id = fc.get("id")
+            if self._greeting_turn:
+                responses.append({"id": call_id, "name": name,
+                                  "response": {"status": "ignored",
+                                               "detail": "Lượt mở đầu chỉ chào bằng giọng nói; không thực hiện công cụ."}})
+                continue
+            if call_id and call_id in self.handled_tool_calls:
+                responses.append({"id": call_id, "name": name,
+                                  "response": {"status": "not_replayed",
+                                               "detail": "Lệnh đã được tiếp nhận ở kết nối trước; không chạy lại."}})
+                continue
             if name == "end_conversation":
                 self.force_sleep.set()
                 responses.append({"id": fc.get("id"), "name": name, "response": {"status": "ok"}})
@@ -169,18 +203,23 @@ class GeminiAPI:
                                 "response": {"status": "error", "detail": f"Không có handler cho '{name}'"}})
                 continue
             self.cmd_queue.put_nowait((name, args))
+            if call_id:
+                self.handled_tool_calls.add(call_id)
             print(f"[AI] Đã xếp '{name}' vào hàng đợi.")
             dur = self._estimate_action_duration(name, args)
             start_at = start_at + dur
             total_duration += dur
             responses.append({"id": call_id, "name": name, "response": {"status": "ok"}})
-            # if name in ["wave_hello"]:
-            #     self.cmd_queue.put_nowait(("idle_pose", {}))
-            #     print("[SYSTEM] Tự động chèn 'idle_pose' vào để thu tay về.")
-            #     total_duration += 0.5
+            if name in ["wave_hello"]:
+                self.cmd_queue.put_nowait(("idle_pose", {}))
+                print("[SYSTEM] Tự động chèn 'idle_pose' vào để thu tay về.")
+                total_duration += 0.5
         self._queue_free_at = start_at
         self.mic_reopen_at = max(self.mic_reopen_at, time.monotonic() + total_duration + 0.5)
-        await self.ws.send(json.dumps({"toolResponse": {"functionResponses": responses}}))
+        await asyncio.wait_for(
+            self.ws.send(json.dumps({"toolResponse": {"functionResponses": responses}})),
+            timeout=SEND_TIMEOUT,
+        )
     
     async def _hardware_worker(self):
         loop = asyncio.get_running_loop()
@@ -222,6 +261,8 @@ class GeminiAPI:
                     update = response["sessionResumptionUpdate"]
                     if update.get("resumable") and update.get("newHandle"):
                         self.resumption_handle = update["newHandle"]
+                    elif update.get("resumable") is False:
+                        self.resumption_handle = None
                     continue
                 if "toolCall" in response:
                     await self._handle_tool_call(response["toolCall"])
@@ -259,6 +300,7 @@ class GeminiAPI:
                                 await loop.run_in_executor(None, self.speaker.play, raw_audio)
 
                 if server_content.get("turnComplete", False):
+                    self._greeting_turn = False
                     print("\n[GEMINI] Turn complete.")
                     self.mic_reopen_at = time.monotonic() + self.MUTE_COOLDOWN
                     self.ai_speaking = False
@@ -268,8 +310,8 @@ class GeminiAPI:
         except asyncio.CancelledError:
             print("[GEMINI] Receive audio task cancelled.")
             raise
-        except Exception as e:
-            logging.error(f"[GEMINI] Error receiving audio: {e}")
+        # Other errors deliberately propagate unchanged to the session owner.
+        raise GeminiDisconnected("Luồng nhận Gemini đã kết thúc.")
 
     async def close(self):
         if self.hardware_worker_task and not self.hardware_worker_task.done():
@@ -280,4 +322,8 @@ class GeminiAPI:
                 pass
         if self.ws:
             await self.ws.close()
+            self.ws = None
             print("[GEMINI] Connection closed.")
+        while not self.cmd_queue.empty():
+            self.cmd_queue.get_nowait()
+            self.cmd_queue.task_done()

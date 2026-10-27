@@ -1,0 +1,39 @@
+=== BD-1 ROBOT SYSTEM EVENT LOGS ===
+Exported at: 2026-10-26 18:11:16
+
+[2026-10-25 20:53:52] [OK  ] [DATABASE] Khởi tạo cơ sở dữ liệu SQLite BD1.db thành công.
+[2026-10-25 20:56:07] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-25 20:56:07] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-25 20:56:17] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'faces_gallery'.
+[2026-10-25 20:56:20] [INFO] [FACE    ] Đã áp dụng theme 'Cyber Cyan' (cyber_cyan)
+[2026-10-25 20:56:24] [INFO] [FACE    ] Đã áp dụng theme 'Sakura Pink' (sakura_pink)
+[2026-10-25 20:57:53] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'faces_gallery'.
+[2026-10-25 20:58:43] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'faces_gallery'.
+[2026-10-26 14:16:12] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-26 14:16:12] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-26 14:16:34] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'faces_gallery'.
+[2026-10-26 14:17:18] [INFO] [FACE    ] Đã áp dụng theme 'Amber Glow' (amber_glow)
+[2026-10-26 14:17:19] [INFO] [FACE    ] Đã áp dụng theme 'BD-1 Classic' (bd1_classic)
+[2026-10-26 14:17:23] [INFO] [FACE    ] Đã áp dụng theme 'Custom' (custom)
+[2026-10-26 14:17:25] [INFO] [FACE    ] Đã áp dụng theme 'Custom' (custom)
+[2026-10-26 14:17:26] [INFO] [FACE    ] Đã áp dụng theme 'Custom' (custom)
+[2026-10-26 14:17:29] [INFO] [FACE    ] Đã áp dụng theme 'Custom' (custom)
+[2026-10-26 14:17:30] [INFO] [FACE    ] Đã áp dụng theme 'Custom' (custom)
+[2026-10-26 14:17:31] [INFO] [FACE    ] Đã áp dụng theme 'Custom' (custom)
+[2026-10-26 14:39:30] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-26 14:39:30] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-26 14:41:30] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-26 14:46:11] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-26 14:46:11] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-26 14:46:28] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-26 14:46:37] [OK  ] [PERSONA ] Đã áp dụng vai trò 'Đại sứ AIoT' vào DB.
+[2026-10-26 18:02:09] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-26 18:02:09] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-26 18:02:57] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'system'.
+[2026-10-26 18:10:04] [WARN] [AUTH    ] Đăng nhập thất bại: user 'pi'.
+[2026-10-26 18:10:05] [WARN] [AUTH    ] Đăng nhập thất bại: user 'pi'.
+[2026-10-26 18:10:10] [WARN] [AUTH    ] Đăng nhập thất bại: user 'pi'.
+[2026-10-26 18:10:11] [WARN] [AUTH    ] Đăng nhập thất bại: user 'pi'.
+[2026-10-26 18:10:50] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-26 18:10:50] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-26 18:10:57] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'system'.
