@@ -41,6 +41,9 @@ class SystemScreen(BaseScreen):
         # Card log dưới
         self.log_card_rect = pygame.Rect(26, 206, 748, 224)
         self.terminal_rect = pygame.Rect(26, 252, 748, 178)
+        self.log_scroll_y = 0
+        self.log_scroll_dragging = False
+        self.log_drag_offset = 0
 
         # Log mẫu hệ thống
         self.logs: List[Dict[str, str]] = [
@@ -78,6 +81,7 @@ class SystemScreen(BaseScreen):
         return {"temp": temp_str, "info": f"CPU {cpu_usage} • RAM {ram_str}"}
 
     def on_enter(self, **kwargs):
+        self.log_scroll_y = 0
         self._refresh_logs()
 
     def _refresh_logs(self):
@@ -87,6 +91,31 @@ class SystemScreen(BaseScreen):
                 {"time": l["time_str"], "level": l["level"], "msg": f"[{l['component']}] {l['message']}"}
                 for l in db_logs
             ]
+        self.log_scroll_y = min(self.log_scroll_y, self._get_max_log_scroll())
+
+    def _get_max_log_scroll(self) -> int:
+        line_gap = 26
+        content_height = len(self.logs) * line_gap
+        visible_height = self.terminal_rect.height - 28
+        return max(0, content_height - visible_height)
+
+    def _get_log_scrollbar(self):
+        track_rect = pygame.Rect(
+            self.terminal_rect.right - 14,
+            self.terminal_rect.y + 10,
+            6,
+            self.terminal_rect.height - 20,
+        )
+        max_scroll = self._get_max_log_scroll()
+        if max_scroll <= 0:
+            return track_rect, None
+
+        visible_height = self.terminal_rect.height - 28
+        content_height = visible_height + max_scroll
+        thumb_height = max(24, int(track_rect.height * visible_height / content_height))
+        travel = track_rect.height - thumb_height
+        thumb_y = track_rect.y + int(travel * self.log_scroll_y / max_scroll)
+        return track_rect, pygame.Rect(track_rect.x, thumb_y, track_rect.width, thumb_height)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -101,6 +130,39 @@ class SystemScreen(BaseScreen):
                     self._refresh_logs()
                     print(f"[SYSTEM LOG] Xuất file thành công: {export_file}")
                 return True
+
+            _, thumb_rect = self._get_log_scrollbar()
+            if thumb_rect and thumb_rect.collidepoint(event.pos):
+                self.log_scroll_dragging = True
+                self.log_drag_offset = event.pos[1] - thumb_rect.y
+                return True
+
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.log_scroll_dragging:
+                self.log_scroll_dragging = False
+                return True
+
+        elif event.type == pygame.MOUSEMOTION and self.log_scroll_dragging:
+            track_rect, thumb_rect = self._get_log_scrollbar()
+            if thumb_rect:
+                travel = track_rect.height - thumb_rect.height
+                thumb_y = max(
+                    track_rect.y,
+                    min(event.pos[1] - self.log_drag_offset, track_rect.bottom - thumb_rect.height),
+                )
+                if travel > 0:
+                    self.log_scroll_y = int(
+                        (thumb_y - track_rect.y) / travel * self._get_max_log_scroll()
+                    )
+            return True
+
+        elif event.type == pygame.MOUSEWHEEL and self.terminal_rect.collidepoint(pygame.mouse.get_pos()):
+            self.log_scroll_y = max(
+                0,
+                min(self._get_max_log_scroll(), self.log_scroll_y - event.y * 26),
+            )
+            return True
+
         return False
 
     def update(self):
@@ -214,8 +276,10 @@ class SystemScreen(BaseScreen):
 
         # Render danh sách logs
         log_font = self.theme.get_font(12)
-        ly = self.terminal_rect.y + 14
         line_gap = 26
+        ly = self.terminal_rect.y + 14 - self.log_scroll_y
+        old_clip = surface.get_clip()
+        surface.set_clip(self.terminal_rect)
 
         for item in self.logs:
             # 1. Thời gian
@@ -238,6 +302,14 @@ class SystemScreen(BaseScreen):
             surface.blit(m_surf, (self.terminal_rect.x + 148, ly))
 
             ly += line_gap
+
+        surface.set_clip(old_clip)
+
+        # Thanh cuộn dọc cho danh sách log
+        track_rect, thumb_rect = self._get_log_scrollbar()
+        if thumb_rect:
+            pygame.draw.rect(surface, (28, 57, 47), track_rect, border_radius=3)
+            pygame.draw.rect(surface, (113, 157, 139), thumb_rect, border_radius=3)
 
         # 4. Footer dưới cùng màn hình
         # Bên trái: Chấm xanh Live telemetry active

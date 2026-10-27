@@ -40,7 +40,7 @@ class AppManager:
         # pygame.init()
         pygame.display.init()
         pygame.font.init() 
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        self.screen = pygame.display.set_mode((self.width, self.height),pygame.FULLSCREEN)
         pygame.display.set_caption("BD-1 Dashboard • Modular Architecture")
         self.clock = pygame.time.Clock()
 

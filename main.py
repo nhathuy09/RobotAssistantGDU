@@ -1,10 +1,12 @@
 import asyncio
 import time
+import logging
 from audio.microphone import Microphone
 from audio.speaker import Speaker
 from audio.vad import VoiceActivityDetector
 from wakeword.detector import WakeWordDetector
 from core.gemini_api import GeminiAPI
+from core.reconnect import RECONNECT_DELAYS, GeminiDisconnected, is_retryable_connection_error
 from controller.orc_controller import OrcController
 from controller.motion_tools import build_tool_handlers
 from display.face_client import FaceClient
@@ -14,6 +16,7 @@ try:
 except ImportError:
     PersonaRepository = None
 
+GREETING_TIMEOUT = 30.0
 LISTEN_TIMEOUT = 6.0     
 IDLE_TIMEOUT = 10.0     
 POST_WAKEWORD_SKIP = 2   
@@ -44,32 +47,103 @@ async def main(app_manager=None, stop_event=None):
     listen_deadline = None
     skip_count = 0
     last_activity = None
-    pending_audio = []
+    greeting_pending = False
+    greeting_deadline = None
     
-    async def end_session(reason: str):
-        nonlocal gemini, receive_task, status, wakeword_cooldown, resumption_handle
-        print(f"\n[SYSTEM] {reason} -- ngắt kết nối, quay lại chờ 'Alexa'.")
-        if receive_task and not receive_task.done():
-            receive_task.cancel()
+    retry_count = 0
+    retry_at = 0.0
+    cleanup_task = None
+    handled_tool_calls = set()
+
+    def start_connection():
+        nonlocal gemini, connect_task
+        gemini = GeminiAPI(
+            speaker, resumption_handle=resumption_handle,
+            tool_handlers=tool_handlers, face_client=face,
+            handled_tool_calls=handled_tool_calls,
+        )
+        connect_task = asyncio.create_task(gemini.connect())
+
+    async def begin_connected_session():
+        nonlocal receive_task, status, greeting_pending, greeting_deadline
+        nonlocal skip_count, listen_deadline, last_activity
+        receive_task = asyncio.create_task(gemini.receive_audio())
+        if greeting_pending:
+            # Mark before send: a failed send may already have reached the server.
+            # Do not automatically send a duplicate opening after reconnect.
+            greeting_pending = False
+            status = "GREETING"
+            greeting_deadline = time.monotonic() + GREETING_TIMEOUT
+            face.send_state("THINKING")
+            await gemini.send_greeting()
+            print("[SYSTEM] Đã yêu cầu Gemini chào chủ động. Vui lòng chờ lời chào.")
+        else:
+            status = "LISTENING"
+            skip_count = POST_WAKEWORD_SKIP
+            listen_deadline = time.monotonic() + LISTEN_TIMEOUT
+            last_activity = time.monotonic()
+            face.send_state("LISTENING")
+            print("[SYSTEM] Đã kết nối lại. Bạn có thể nói tiếp, không cần gọi Alexa.")
+
+    async def close_current_connection():
+        nonlocal gemini, connect_task, receive_task, resumption_handle
+        old_gemini = gemini
+        tasks = [t for t in (connect_task, receive_task) if t is not None]
+        gemini = connect_task = receive_task = None
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if old_gemini:
+            resumption_handle = old_gemini.resumption_handle
             try:
-                await receive_task
-            except asyncio.CancelledError:
-                pass
-        if gemini:
-            # nonlocal resumption_handle
-            if gemini.resumption_handle and "ngủ" not in reason.lower() and "im lặng" not in reason.lower():
-                resumption_handle = gemini.resumption_handle
-                print("[SYSTEM] Đã lưu ngữ cảnh phiên -- lần gọi 'Alexa' tiếp theo sẽ nhớ tiếp.")
-            else:
-                resumption_handle = None
-                print("[SYSTEM] Không lưu ngữ cảnh phiên -- lần gọi 'Alexa' tiếp theo sẽ bắt đầu mới.")
-            await gemini.close()
-        gemini = None
-        receive_task = None
+                await old_gemini.close()
+            except Exception:
+                logging.exception("[SYSTEM] Lỗi đóng kết nối Gemini cũ")
+        await asyncio.get_running_loop().run_in_executor(None, speaker.flush)
+
+    async def finish_cleanup():
+        nonlocal cleanup_task
+        if cleanup_task:
+            await cleanup_task
+            cleanup_task = None
+
+    async def end_session(reason: str):
+        nonlocal status, wakeword_cooldown, resumption_handle, retry_count, greeting_pending
+        print(f"\n[SYSTEM] {reason} -- ngắt kết nối, quay lại chờ 'Alexa'.")
+        await finish_cleanup()
+        await close_current_connection()
+        if "ngủ" in reason.lower() or "im lặng" in reason.lower():
+            resumption_handle = None
+        if resumption_handle is None:
+            handled_tool_calls.clear()
+        retry_count = 0
+        greeting_pending = False
         status = "WAKEWORD"
         wakeword.reset()
         wakeword_cooldown = time.monotonic() + WAKEWORD_COOLDOWN_AFTER_SESSION
         face.send_state("SLEEP" if "ngủ" in reason.lower() else "IDLE")
+
+    async def schedule_reconnect(error):
+        nonlocal status, retry_count, retry_at, cleanup_task
+        # An explicit sleep request must not be undone by a network failure.
+        if gemini and gemini.force_sleep.is_set():
+            await end_session("Nhận lệnh đi ngủ từ người dùng")
+            return
+        if retry_count >= len(RECONNECT_DELAYS):
+            await end_session("Không thể kết nối lại sau 3 lần thử")
+            return
+        delay = RECONNECT_DELAYS[retry_count]
+        retry_count += 1
+        status = "RECONNECTING"
+        retry_at = time.monotonic() + delay
+        # Cleanup runs in the background so the loop keeps draining the mic.
+        cleanup_task = asyncio.create_task(close_current_connection())
+        face.send_state("THINKING")
+        print(f"[SYSTEM] {type(error).__name__}: {error}")
+        print(f"[SYSTEM] Đang kết nối lại {retry_count}/{len(RECONNECT_DELAYS)} "
+              f"sau {delay:g}s. Vui lòng chờ trước khi nói tiếp.")
 
     try:
         if not orc.connect():
@@ -80,9 +154,12 @@ async def main(app_manager=None, stop_event=None):
         speaker.start_stream()
         while not (stop_event and stop_event.is_set()):
             try:
+                network_operation = False
                 # Nếu người dùng đang ở các màn hình cài đặt (Persona, WiFi, PIN, System...)
                 # Tạm dừng lắng nghe WakeWord để nhường trọn CPU và chống nhiễu rè loa
                 if app_manager and getattr(app_manager, "current_screen_name", "face") != "face":
+                    if status != "WAKEWORD" or gemini or cleanup_task:
+                        await end_session("Tạm dừng hội thoại khi mở cài đặt")
                     await asyncio.sleep(0.1)
                     continue
 
@@ -111,50 +188,72 @@ async def main(app_manager=None, stop_event=None):
                             except Exception:
                                 pass
 
-                        gemini = GeminiAPI(
-                            speaker,
-                            resumption_handle=resumption_handle,
-                            tool_handlers=tool_handlers, 
-                            face_client=face
-                        )
-                        connect_task = asyncio.create_task(gemini.connect())
-                        # listen_deadline = time.monotonic() + LISTEN_TIMEOUT
+                        retry_count = 0
+                        greeting_pending = True
+                        if resumption_handle is None:
+                            handled_tool_calls.clear()
+                        start_connection()
                         status = "CONNECTING"
-                        # skip_count = POST_WAKEWORD_SKIP
-                        # listen_deadline = time.monotonic() + LISTEN_TIMEOUT
 
-                # ------------------- TRẠNG THÁI 2: ĐANG KẾT NỐI (NỀN) -------------------
+                elif status == "RECONNECTING":
+                    # Discard audio captured while offline; never replay it.
+                    if cleanup_task:
+                        if not cleanup_task.done():
+                            continue
+                        await finish_cleanup()
+                    if connect_task is None:
+                        if time.monotonic() >= retry_at:
+                            if resumption_handle is None:
+                                handled_tool_calls.clear()
+                            start_connection()
+                        continue
+                    if not connect_task.done():
+                        continue
+                    network_operation = True
+                    await connect_task
+                    connect_task = None
+                    await begin_connected_session()
+
                 elif status == "CONNECTING":
-                    pending_audio.append(audio_data)
+                    # Greeting-first: discard capture during setup rather than
+                    # replaying speech/noise that could interrupt the opening.
                     if connect_task.done():
-                        exc = connect_task.exception()
-                        if exc:
-                            raise exc
-                        receive_task = asyncio.create_task(gemini.receive_audio())
-                        print("[SYSTEM] Gemini đã sẵn sàng. Mời bạn nói...")
+                        network_operation = True
+                        await connect_task
+                        connect_task = None
+                        await begin_connected_session()
+
+                elif status == "GREETING":
+                    network_operation = True
+                    if receive_task.done():
+                        await receive_task
+                        raise GeminiDisconnected("Luồng nhận Gemini đã kết thúc.")
+                    if gemini.go_away_event.is_set():
+                        await schedule_reconnect(GeminiDisconnected("Gemini gửi goAway"))
+                        continue
+                    # Continue draining the mic, but do not send any audio until
+                    # the opening has finished playing and the mute cooldown ends.
+                    if gemini.turn_complete.is_set() and not gemini.mic_should_be_muted():
+                        gemini.turn_complete.clear()
                         status = "LISTENING"
-                        skip_count = POST_WAKEWORD_SKIP 
+                        skip_count = POST_WAKEWORD_SKIP
                         listen_deadline = time.monotonic() + LISTEN_TIMEOUT
-                        buffered = pending_audio
-                        pending_audio = []
-                        for i, chunk in enumerate(buffered):
-                            if i < POST_WAKEWORD_SKIP:
-                                continue
-                            if status == "LISTENING" and vad.calculate_rms(chunk) > vad.start_threshold:
-                                print("[MIC] Phát hiện giọng nói đã nói trong lúc đang kết nối -- gửi bù...")
-                                status = "ACTIVE"
-                                last_activity = time.monotonic()
-                                skip_count = 0
-                            if status == "ACTIVE":
-                                await gemini.send_audio(chunk)
-                    # if time.monotonic() > listen_deadline:
-                    #     raise TimeoutError("Kết nối hoặc chờ giọng nói quá lâu")
+                        last_activity = time.monotonic()
+                        retry_count = 0
+                        face.send_state("LISTENING")
+                        print("[SYSTEM] Đã chào xong. Mời bạn nói...")
+                    elif time.monotonic() >= greeting_deadline:
+                        await end_session("Hết thời gian chờ lời chào Gemini")
 
                 # ------------------- TRẠNG THÁI 3: CHỜ BẮT ĐẦU NÓI -------------------
                 elif status == "LISTENING":
+                    network_operation = True
                     if receive_task.done():
-                        exc = receive_task.exception()
-                        raise exc if exc else RuntimeError("WebSocket bị ngắt đột ngột!")
+                        await receive_task
+                        raise GeminiDisconnected("Luồng nhận Gemini đã kết thúc.")
+                    if gemini.go_away_event.is_set():
+                        await schedule_reconnect(GeminiDisconnected("Gemini gửi goAway"))
+                        continue
                     if skip_count > 0:
                         skip_count -= 1
                         continue 
@@ -169,11 +268,12 @@ async def main(app_manager=None, stop_event=None):
 
                 # ------------------- TRẠNG THÁI 4: GIAO TIẾP HAI CHIỀU -------------------
                 elif status == "ACTIVE":
+                    network_operation = True
                     if receive_task.done():
-                        exc = receive_task.exception()
-                        raise exc if exc else RuntimeError("WebSocket bị ngắt đột ngột!")
+                        await receive_task
+                        raise GeminiDisconnected("Luồng nhận Gemini đã kết thúc.")
                     if gemini.go_away_event.is_set():
-                        await end_session("Server sắp ngắt kết nối (goAway)")
+                        await schedule_reconnect(GeminiDisconnected("Gemini gửi goAway"))
                         continue
                     if not gemini.mic_should_be_muted():
                         await gemini.send_audio(audio_data)
@@ -183,6 +283,9 @@ async def main(app_manager=None, stop_event=None):
                         last_activity = time.monotonic()
                     if gemini.turn_complete.is_set() and not speaker.is_busy():
                         gemini.turn_complete.clear()
+                        # Reset the budget only after a completed turn, not setup:
+                        # repeated immediate disconnects must exhaust retries.
+                        retry_count = 0
                         last_activity = time.monotonic()
                         print("\n[GEMINI] Trả lời xong. Bạn có thể nói tiếp...")
                         if gemini.force_sleep.is_set():
@@ -193,36 +296,30 @@ async def main(app_manager=None, stop_event=None):
 
             except (asyncio.CancelledError, KeyboardInterrupt):
                 break
-            except RuntimeError as e:
-                # Nếu event loop hoặc executor đang shutdown
-                if "cannot schedule new futures" in str(e) or "Event loop is closed" in str(e):
-                    break
-                if stop_event and stop_event.is_set():
-                    break
-                print(f"\n[SYSTEM] Sự cố Runtime: {e}")
-                await end_session("Lỗi trong phiên")
-                await asyncio.sleep(1.0)
             except Exception as e:
                 if stop_event and stop_event.is_set():
                     break
-                print(f"\n[SYSTEM] Sự cố: {e}")
-                await end_session("Lỗi trong phiên")
-                await asyncio.sleep(1.0) 
+                if isinstance(e, RuntimeError) and (
+                    "cannot schedule new futures" in str(e) or "Event loop is closed" in str(e)
+                ):
+                    break
+                if network_operation and is_retryable_connection_error(e):
+                    # Traceback retains the original socket error and its cause.
+                    logging.exception("[SYSTEM] Kết nối Gemini bị gián đoạn")
+                    await schedule_reconnect(e)
+                else:
+                    logging.exception("[SYSTEM] Lỗi không tự động thử lại")
+                    await end_session("Lỗi trong phiên")
+                    await asyncio.sleep(1.0)
 
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     finally:
-        if receive_task and not receive_task.done():
-            receive_task.cancel()
-            try:
-                await receive_task
-            except (asyncio.CancelledError, Exception):
-                pass
-        if gemini:
-            try:
-                await gemini.close()
-            except Exception:
-                pass
+        try:
+            await finish_cleanup()
+            await close_current_connection()
+        except Exception:
+            logging.exception("[SYSTEM] Lỗi dọn phiên khi thoát")
         try:
             orc.disconnect()
         except Exception:

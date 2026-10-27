@@ -1,5 +1,7 @@
 import pyaudio
 import numpy as np
+import threading
+import queue
 from scipy.signal import butter, lfilter, lfilter_zi
 from config import (
     FORMAT,
