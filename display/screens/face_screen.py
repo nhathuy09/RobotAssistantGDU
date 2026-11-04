@@ -5,6 +5,8 @@ import pygame
 from typing import List, Optional, Tuple, Dict
 from display.screens.base_screen import BaseScreen
 from display.theme import Colors
+from display.status import LABELS
+from display.icons import draw_icon
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -32,9 +34,9 @@ def get_cubic_bezier_points(p0, p1, p2, p3, steps: int = 36) -> List[Tuple[float
 
 
 class AnimeRobotFace:
-    
 
-    VALID_STATES = ["IDLE", "ACTIVE", "LISTENING", "THINKING", "SPEAKING", "ACTING", "WAKEWORD", "SLEEP", "STANDBY"]
+
+    VALID_STATES = tuple(LABELS)
 
     def __init__(
         self,
@@ -96,7 +98,7 @@ class AnimeRobotFace:
         if state in self.VALID_STATES and state != self.current_state:
             self.current_state = state
             self.state_enter_time = time.monotonic()
-            if state in ["ACTIVE", "LISTENING", "SPEAKING", "THINKING", "ACTING"]:
+            if state in ["ACTIVE", "LISTENING", "SPEAKING", "THINKING", "ACTING", "CONNECTING", "RECONNECTING", "GREETING", "ERROR"]:
                 self.sleep_progress = 0.0
 
     def update(self):
@@ -105,7 +107,7 @@ class AnimeRobotFace:
         # Tự động ngủ khi IDLE sau 5s hoặc các trạng thái ngủ
         if self.current_state in ["WAKEWORD", "SLEEP", "STANDBY"]:
             target_sleep = 1.0
-        elif self.current_state in ["ACTIVE", "LISTENING", "SPEAKING", "THINKING", "ACTING"]:
+        elif self.current_state in ["ACTIVE", "LISTENING", "SPEAKING", "THINKING", "ACTING", "CONNECTING", "RECONNECTING", "GREETING", "ERROR"]:
             target_sleep = 0.0
         elif self.current_state == "IDLE":
             target_sleep = 1.0 if (now - self.state_enter_time) > 5.0 else 0.0
@@ -141,7 +143,7 @@ class AnimeRobotFace:
             target_lift = 4.0
         elif self.current_state == "LISTENING":
             target_lift = -12.0
-        elif self.current_state == "THINKING":
+        elif self.current_state in ("THINKING", "CONNECTING", "GREETING", "RECONNECTING") :
             target_lift = 8.0
         elif self.current_state == "SPEAKING":
             self.mouth_phase += 0.28
@@ -181,6 +183,10 @@ class AnimeRobotFace:
         spacing = self.s(self.eye_spacing)
         lx = self.cx - spacing / 2
         rx = self.cx + spacing / 2
+        if self.current_state in ("THINKING", "CONNECTING", "RECONNECTING"):
+            offset = self.s(9) * math.sin(time.monotonic() * 2)
+            lx += offset
+            rx += offset
 
         if self.sleep_progress > 0.35:
             # Mắt nhắm hình cung cong ︶ ︶
@@ -362,11 +368,11 @@ class FaceScreen(BaseScreen):
 
     EXPRESSIONS = [
         ("IDLE", "Mặc định", "IDLE • Tự động thở & chớp mắt"),
-        ("ACTIVE", "Năng động", "ACTIVE • Mắt mở to tương tác"),
+        ("CONNECTING", "Kết nối", "Đang thiết lập phiên hội thoại"),
         ("SPEAKING", "Đang nói", "SPEAKING • Khẩu hình cử động"),
         ("LISTENING", "Lắng nghe", "LISTENING • Rướn mày chú ý"),
         ("THINKING", "Suy nghĩ", "THINKING • Nhíu mày tập trung"),
-        ("WAKEWORD", "Đánh thức", "WAKEWORD • Sẵn sàng khẩu lệnh"),
+        ("RECONNECTING", "Nối lại", "Mạng gián đoạn • Đang thử lại"),
         ("SLEEP", "Đi ngủ", "SLEEP • Nhắm nghiền thư giãn"),
         ("ACTING", "Hành động", "ACTING • Thực thi động tác"),
     ]
@@ -596,7 +602,7 @@ class FaceScreen(BaseScreen):
         FaceThemeRepository.save_theme(theme_id, theme_name, hex_ink, hex_bg, hex_teeth, is_active=0)
         FaceThemeRepository.set_active_theme(theme_id)
 
-        self.toast_msg = "✓ Đã áp dụng & lưu cấu hình!"
+        self.toast_msg = "Đã áp dụng & lưu cấu hình!"
         self.toast_timer = time.monotonic() + 2.5
 
     def on_enter(self, gallery: Optional[bool] = None, **kwargs):
@@ -607,7 +613,7 @@ class FaceScreen(BaseScreen):
 
         self.load_theme_settings()
         if not self.show_gallery:
-            self.face.set_state("ACTIVE")
+            self.face.set_state("WAKEWORD")
         else:
             self.preview_face.set_state("ACTIVE")
 
@@ -695,6 +701,24 @@ class FaceScreen(BaseScreen):
     def draw(self, surface: pygame.Surface):
         if not self.show_gallery:
             self.face.draw(surface)
+            state = self.face.current_state
+            label = LABELS.get(state, state)
+            font = self.theme.get_font(18, bold=True)
+            text = font.render(label, True, self.face.ink_color)
+            surface.blit(text, text.get_rect(center=(400, 446)))
+            if state == "RECONNECTING":
+                angle = time.monotonic() * 3
+                pygame.draw.arc(surface, self.face.ink_color, (385, 10, 30, 30), angle, angle + 4.5, 3)
+            elif state in ("CONNECTING", "GREETING", "THINKING"):
+                tick = int(time.monotonic() * 3) % 3
+                for i in range(3):
+                    pygame.draw.circle(surface, self.face.ink_color, (378 + i * 22, 28), 6 if i == tick else 3)
+            elif state == "LISTENING":
+                draw_icon(surface, "microphone", (400, 28), 32, self.face.ink_color)
+            elif state == "SPEAKING":
+                draw_icon(surface, "sound", (400, 28), 32, self.face.ink_color)
+            elif state == "ACTING":
+                pygame.draw.polygon(surface, self.face.ink_color, [(390, 12), (412, 26), (390, 40)])
         else:
             self._draw_studio(surface)
 
@@ -744,14 +768,14 @@ class FaceScreen(BaseScreen):
         pygame.draw.rect(surface, Colors.CARD_BORDER, left_card, 1, border_radius=16)
 
         # Header trong Card Preview
-        lbl_screen = self.theme.font_small_bold.render("MÀN HÌNH ROBOT", True, Colors.TEXT_MUTED)
+        lbl_screen = self.theme.font_small_bold.render("XEM TRƯỚC BIỂU CẢM", True, Colors.TEXT_MUTED)
         surface.blit(lbl_screen, (36, 84))
 
         # Badge Live
         badge_rect = pygame.Rect(left_card.right - 80, 81, 64, 20)
         pygame.draw.rect(surface, Colors.PINE_GREEN_LIGHT, badge_rect, border_radius=10)
         pygame.draw.circle(surface, Colors.BTN_PRIMARY, (badge_rect.x + 12, badge_rect.centery), 4)
-        live_txt = self.theme.font_small_bold.render("LIVE", True, Colors.BTN_PRIMARY)
+        live_txt = self.theme.font_small_bold.render("THỬ", True, Colors.BTN_PRIMARY)
         surface.blit(live_txt, (badge_rect.x + 22, badge_rect.centery - live_txt.get_height() // 2))
 
         # Khung viền Bezel giả lập màn hình Robot

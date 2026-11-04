@@ -21,10 +21,10 @@ class PinScreen(BaseScreen):
     ERROR_COLOR = Colors.ERROR_COLOR
 
     SCREEN_TITLES: Dict[str, str] = {
-        "wifi": "Wi-Fi Settings",
-        "persona": "Personality Configuration",
-        "system": "System Settings",
-        "faces_gallery": "Face Expressions Gallery",
+        "wifi": "Kết nối Wi-Fi",
+        "persona": "Cấu hình vai trò",
+        "system": "Hệ thống",
+        "faces_gallery": "Thư viện biểu cảm",
     }
 
     def __init__(self, app_manager):
@@ -50,7 +50,7 @@ class PinScreen(BaseScreen):
             [("1", "1"), ("2", "2"), ("3", "3")],
             [("4", "4"), ("5", "5"), ("6", "6")],
             [("7", "7"), ("8", "8"), ("9", "9")],
-            [("cancel", "Hủy"), ("0", "0"), ("back", "DEL")],
+            [("cancel", "Hủy"), ("0", "0"), ("back", "Xóa")],
         ]
 
         for r_idx, row in enumerate(layout):
@@ -82,8 +82,9 @@ class PinScreen(BaseScreen):
             return
 
         if AdminRepository.verify_pin(self.pin_value):
+            self.app_manager.unlock_admin()
             self.is_success = True
-            self.message = "Mở khóa thành công!"
+            self.message = "Đã mở khóa quản trị trong 5 phút"
             self.success_timer = pygame.time.get_ticks()
             SystemLogRepository.log("OK", "PIN", f"Mở khóa mã PIN thành công cho màn hình '{self.target_screen}'.")
         else:
@@ -178,10 +179,10 @@ class PinScreen(BaseScreen):
         self._draw_lock_icon(surface, cx, top + 30, lock_col)
 
         # Tiêu đề & Phụ đề trang cần mở khóa
-        title_surf = self.theme.get_font(21, bold=True).render("Security PIN", True, self.TEXT_MAIN)
+        title_surf = self.theme.get_font(21, bold=True).render("Mở khóa quản trị", True, self.TEXT_MAIN)
         surface.blit(title_surf, (cx - title_surf.get_width() // 2, top + 48))
 
-        sub_label = f"{self.SCREEN_TITLES.get(self.target_screen, 'Protected Access')} • 6 chữ số"
+        sub_label = f"{self.SCREEN_TITLES.get(self.target_screen, 'Mục được bảo vệ')} • 6 chữ số"
         sub_surf = self.theme.get_font(12).render(sub_label, True, self.TEXT_MUTED)
         surface.blit(sub_surf, (cx - sub_surf.get_width() // 2, top + 76))
 

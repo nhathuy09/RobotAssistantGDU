@@ -17,16 +17,16 @@ except ImportError:
     PersonaRepository = None
 
 GREETING_TIMEOUT = 30.0
-LISTEN_TIMEOUT = 6.0     
-IDLE_TIMEOUT = 10.0     
-POST_WAKEWORD_SKIP = 2   
+LISTEN_TIMEOUT = 6.0
+IDLE_TIMEOUT = 10.0
+POST_WAKEWORD_SKIP = 2
 WAKEWORD_COOLDOWN_AFTER_SESSION = 2.5
 async def main(app_manager=None, stop_event=None):
     microphone = Microphone()
     speaker = Speaker()
     wakeword = WakeWordDetector()
     vad = VoiceActivityDetector(start_threshold=1000, speech_threshold=1500)
-    orc = OrcController(port="/dev/ttyACM0") 
+    orc = OrcController(port="/dev/ttyACM0")
     face = FaceClient(app_manager=app_manager) if app_manager else FaceClient(ip="127.0.0.1", port=5005)
     tool_handlers = None
 
@@ -34,7 +34,7 @@ async def main(app_manager=None, stop_event=None):
     if PersonaRepository:
         try:
             active_p = PersonaRepository.get_active_persona()
-            current_persona_id = active_p.get("id") if active_p else None
+            current_persona_id = (active_p.get("id"), PersonaRepository.get_system_instruction()) if active_p else None
         except Exception:
             pass
 
@@ -49,7 +49,7 @@ async def main(app_manager=None, stop_event=None):
     last_activity = None
     greeting_pending = False
     greeting_deadline = None
-    
+
     retry_count = 0
     retry_at = 0.0
     cleanup_task = None
@@ -74,7 +74,7 @@ async def main(app_manager=None, stop_event=None):
             greeting_pending = False
             status = "GREETING"
             greeting_deadline = time.monotonic() + GREETING_TIMEOUT
-            face.send_state("THINKING")
+            face.send_state("GREETING")
             await gemini.send_greeting()
             print("[SYSTEM] Đã yêu cầu Gemini chào chủ động. Vui lòng chờ lời chào.")
         else:
@@ -140,21 +140,28 @@ async def main(app_manager=None, stop_event=None):
         retry_at = time.monotonic() + delay
         # Cleanup runs in the background so the loop keeps draining the mic.
         cleanup_task = asyncio.create_task(close_current_connection())
-        face.send_state("THINKING")
+        face.send_state("RECONNECTING")
         print(f"[SYSTEM] {type(error).__name__}: {error}")
         print(f"[SYSTEM] Đang kết nối lại {retry_count}/{len(RECONNECT_DELAYS)} "
               f"sau {delay:g}s. Vui lòng chờ trước khi nói tiếp.")
 
     try:
-        if not orc.connect():
+        hub_connected = orc.connect()
+        if app_manager:
+            app_manager.update_runtime(hub="Cổng đã mở" if hub_connected else "Chưa kết nối", hub_detail="Chưa có heartbeat thiết bị")
+        if not hub_connected:
             print("[SYSTEM] Không kết nối được Orc Hub -- robot sẽ chạy không có motor.")
         tool_handlers = build_tool_handlers(orc)
         # face.start_stream()
         microphone.start_stream()
         speaker.start_stream()
+        if app_manager:
+            app_manager.update_runtime(audio="Đã mở thiết bị", audio_detail="Mic và loa đã khởi tạo")
         while not (stop_event and stop_event.is_set()):
             try:
                 network_operation = False
+                if app_manager:
+                    app_manager.update_runtime(session=status)
                 # Nếu người dùng đang ở các màn hình cài đặt (Persona, WiFi, PIN, System...)
                 # Tạm dừng lắng nghe WakeWord để nhường trọn CPU và chống nhiễu rè loa
                 if app_manager and getattr(app_manager, "current_screen_name", "face") != "face":
@@ -163,8 +170,11 @@ async def main(app_manager=None, stop_event=None):
                     await asyncio.sleep(0.1)
                     continue
 
+                if gemini and status in ("ACTIVE", "GREETING", "LISTENING"):
+                    if speaker.is_busy():
+                        face.send_state("SPEAKING")
                 audio_data = await asyncio.get_running_loop().run_in_executor(None, microphone.read)
-                
+
                 # ------------------- TRẠNG THÁI 1: CHỜ WAKEWORD -------------------
                 if status == "WAKEWORD":
                     # if time.monotonic() < wakeword_cooldown:
@@ -175,14 +185,14 @@ async def main(app_manager=None, stop_event=None):
                         continue
                     if detected:
                         print("\n[MIC] Đã nghe 'Alexa'! Đang kết nối Gemini (nền)...")
-                        face.send_state("LISTENING")
+                        face.send_state("CONNECTING")
 
                         if PersonaRepository:
                             try:
                                 active_p = PersonaRepository.get_active_persona()
-                                new_p_id = active_p.get("id") if active_p else None
+                                new_p_id = (active_p.get("id"), PersonaRepository.get_system_instruction()) if active_p else None
                                 if current_persona_id is not None and new_p_id != current_persona_id:
-                                    print(f"[SYSTEM] Vai trò Persona đã đổi ({current_persona_id} -> {new_p_id}). Làm mới phiên hội thoại!")
+                                    print("[SYSTEM] Cấu hình Persona đã đổi. Làm mới phiên hội thoại!")
                                     resumption_handle = None
                                 current_persona_id = new_p_id
                             except Exception:
@@ -256,7 +266,7 @@ async def main(app_manager=None, stop_event=None):
                         continue
                     if skip_count > 0:
                         skip_count -= 1
-                        continue 
+                        continue
                     if time.monotonic() > listen_deadline:
                         await end_session("Không nói gì")
                         continue
@@ -281,12 +291,13 @@ async def main(app_manager=None, stop_event=None):
                             last_activity = time.monotonic()
                     if gemini.ai_speaking:
                         last_activity = time.monotonic()
-                    if gemini.turn_complete.is_set() and not speaker.is_busy():
+                    if gemini.turn_complete.is_set() and not gemini.mic_should_be_muted():
                         gemini.turn_complete.clear()
                         # Reset the budget only after a completed turn, not setup:
                         # repeated immediate disconnects must exhaust retries.
                         retry_count = 0
                         last_activity = time.monotonic()
+                        face.send_state("LISTENING")
                         print("\n[GEMINI] Trả lời xong. Bạn có thể nói tiếp...")
                         if gemini.force_sleep.is_set():
                             await end_session("Nhận lệnh đi ngủ từ người dùng")
@@ -336,6 +347,8 @@ async def main(app_manager=None, stop_event=None):
             speaker.stop_stream()
         except Exception:
             pass
+        if app_manager:
+            app_manager.update_runtime(hub="Đã đóng", audio="Đã đóng", audio_detail="Luồng AI đã dừng")
         print("\n[SYSTEM] Đã đóng mic, loa và phần cứng.")
 
 
@@ -397,8 +410,8 @@ if __name__ == "__main__":
 
             stop_evt = threading.Event()
             brain_thread = threading.Thread(
-                target=run_brain, 
-                args=(app, stop_evt), 
+                target=run_brain,
+                args=(app, stop_evt),
                 daemon=False,
                 name="AIBrainThread"
             )
@@ -413,6 +426,3 @@ if __name__ == "__main__":
             if 'brain_thread' in locals() and brain_thread.is_alive():
                 brain_thread.join(timeout=2.5)
             print("[SYSTEM] Đã tắt hoàn tất.")
-
-
-

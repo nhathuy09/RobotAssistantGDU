@@ -46,7 +46,7 @@ class AuthScreen(BaseScreen):
         # Input 1: Username
         self.input_username = InputField(
             rect=pygame.Rect(field_x, 150, field_w, 46),
-            placeholder="Enter a username",
+            placeholder="Nhập tên đăng nhập",
             theme=self.theme,
             font=self.theme.get_font(15),
             max_length=32,
@@ -56,7 +56,7 @@ class AuthScreen(BaseScreen):
         # Input 2: Password
         self.input_password = InputField(
             rect=pygame.Rect(field_x, 230, field_w, 46),
-            placeholder="Enter a password or PIN",
+            placeholder="Nhập mật khẩu hoặc PIN",
             theme=self.theme,
             font=self.theme.get_font(15),
             is_password=True,
@@ -82,7 +82,7 @@ class AuthScreen(BaseScreen):
         # Nút chính (Action Button)
         self.btn_submit = Button(
             rect=pygame.Rect(field_x, 302, field_w, 48),
-            text="Sign In & Continue",
+            text="Đăng nhập",
             theme=self.theme,
             font=self.theme.get_font(16, bold=True),
             bg_color=self.BTN_BG,
@@ -97,12 +97,19 @@ class AuthScreen(BaseScreen):
         self.switch_rect = pygame.Rect(self.card_rect.x, 370, self.card_rect.width, 26)
 
         # Nút đăng xuất khi đã đăng nhập
-        self.back_btn_rect = pygame.Rect(18, 16, 96, 36)
+        self.back_btn_rect = pygame.Rect(201, 310, 190, 48)
+        self.btn_back = Button(
+            rect=self.back_btn_rect, text="Quay lại", theme=self.theme,
+            font=self.theme.get_font(15, bold=True),
+            bg_color=Colors.CARD_BG_MUTED, fg_color=self.TEXT_MAIN,
+            border_color=self.CARD_BORDER, border_radius=12,
+            on_click=lambda: self.app_manager.switch_screen("face"),
+        )
         self.btn_logout = Button(
-            rect=pygame.Rect(18, 16, 96, 34),
+            rect=pygame.Rect(409, 310, 190, 48),
             text="Đăng xuất",
             theme=self.theme,
-            font=self.theme.get_font(13, bold=True),
+            font=self.theme.get_font(15, bold=True),
             bg_color=(235, 232, 224),
             fg_color=self.TEXT_MAIN,
             border_color=(220, 216, 208),
@@ -134,7 +141,9 @@ class AuthScreen(BaseScreen):
         return hashlib.sha256(value.encode()).hexdigest()
 
     def on_enter(self, mode: str = "login", **kwargs):
-        self.mode = mode if mode in ["login", "register"] else "login"
+        # Registration is first-time device setup, not an account chooser.
+        self.registration_available = not AdminRepository.is_registered()
+        self.mode = "register" if self.registration_available else "login"
         self.message = ""
         self.input_username.value = ""
         self.input_password.value = ""
@@ -143,6 +152,13 @@ class AuthScreen(BaseScreen):
         self.input_username.set_focus(False)
         self.input_password.set_focus(False)
         self.input_pin.set_focus(False)
+        self.btn_back.is_pressed = False
+        self.btn_logout.is_pressed = False
+        self.account_name = "Quản trị viên"
+        if self.app_manager.is_authenticated:
+            admin = AdminRepository.get_admin()
+            if admin:
+                self.account_name = admin.get("username") or self.account_name
         self._update_layout()
         try:
             pygame.key.start_text_input()
@@ -158,13 +174,8 @@ class AuthScreen(BaseScreen):
             pass
 
     def _toggle_mode(self):
-        self.mode = "register" if self.mode == "login" else "login"
-        self.message = ""
-        self.keyboard.close()
-        self.input_username.set_focus(False)
-        self.input_password.set_focus(False)
-        self.input_pin.set_focus(False)
-        self._update_layout()
+        # Recheck the database; never expose registration for an existing admin.
+        self.on_enter()
 
     def _get_shift_y(self) -> int:
         if not getattr(self, "keyboard", None) or not self.keyboard.visible:
@@ -195,15 +206,15 @@ class AuthScreen(BaseScreen):
             self.card.rect = self.card_rect
 
             self.input_username.rect = pygame.Rect(field_x, base_top + 120, field_w, 46)
-            self.input_username.placeholder = "Enter a username"
+            self.input_username.placeholder = "Nhập tên đăng nhập"
 
             self.input_password.rect = pygame.Rect(field_x, base_top + 198, field_w, 46)
-            self.input_password.placeholder = "Enter a password or PIN"
+            self.input_password.placeholder = "Nhập mật khẩu hoặc PIN"
 
             self.input_pin.visible = False
 
             self.btn_submit.rect = pygame.Rect(field_x, base_top + 265, field_w, 48)
-            self.btn_submit.text = "Sign In & Continue"
+            self.btn_submit.text = "Đăng nhập"
 
             self.switch_rect = pygame.Rect(self.card_rect.x, base_top + 348, self.card_rect.width, 24)
         else:
@@ -213,7 +224,7 @@ class AuthScreen(BaseScreen):
             self.card.rect = self.card_rect
 
             self.input_username.rect = pygame.Rect(field_x, base_top + 98, field_w, 42)
-            self.input_username.placeholder = "Enter a username"
+            self.input_username.placeholder = "Nhập tên đăng nhập"
 
             self.input_password.rect = pygame.Rect(field_x, base_top + 168, field_w, 42)
             self.input_password.placeholder = "Enter a password (min 6 chars)"
@@ -223,7 +234,7 @@ class AuthScreen(BaseScreen):
             self.input_pin.visible = True
 
             self.btn_submit.rect = pygame.Rect(field_x, base_top + 301, field_w, 46)
-            self.btn_submit.text = "Register & Continue"
+            self.btn_submit.text = "Tạo tài khoản"
 
             self.switch_rect = pygame.Rect(self.card_rect.x, base_top + 382, self.card_rect.width, 24)
 
@@ -266,6 +277,10 @@ class AuthScreen(BaseScreen):
         self._update_layout()
 
     def _on_submit(self):
+        if self.mode == "register" and AdminRepository.is_registered():
+            self.on_enter()
+            self.message = "Robot đã có quản trị viên. Vui lòng đăng nhập."
+            return
         username = self.input_username.value.strip()
         secret = self.input_password.value.strip()
         pin = self.input_pin.value.strip()
@@ -297,13 +312,13 @@ class AuthScreen(BaseScreen):
                 self._open_keyboard_for(self.input_pin)
                 return
 
-            if AdminRepository.is_registered():
-                self.message = "Tài khoản quản trị đã tồn tại."
-                return
-
-            AdminRepository.create_or_update_admin(
+            created = AdminRepository.register_first_admin(
                 username, self._hash_value(secret), self._hash_value(pin)
             )
+            if not created:
+                self.on_enter()
+                self.message = "Robot đã có quản trị viên. Vui lòng đăng nhập."
+                return
             self.app_manager.settings["admin"] = {
                 "username": username,
                 "password_hash": self._hash_value(secret),
@@ -349,6 +364,11 @@ class AuthScreen(BaseScreen):
         return [self.input_username, self.input_password]
 
     def handle_event(self, event: pygame.event.Event) -> bool:
+        # Buttons must receive both press and release events.
+        if self.app_manager.is_authenticated:
+            if self.btn_back.handle_event(event):
+                return True
+            return self.btn_logout.handle_event(event)
         fields = self._get_active_fields()
 
         # Khi bàn phím ảo đang mở
@@ -401,34 +421,7 @@ class AuthScreen(BaseScreen):
             fields[next_index].set_focus(True)
             self._open_keyboard_for(fields[next_index])
             return True
-        if event.type ==pygame.KEYDOWN and event.key==pygame.K_TAB:
-            if self.mode=="login":
-                self.input_username.set_focus(True),self.input_password.set_focus()==self.input_password.set_focus(),self.input_username.set_focus()
-            else:
-                if self.input_username.set_focus(True):
-                    self.input_username.set_focus(False)
-                    self.input_password.set_focus(True)
-                elif self.input_password.set_focus(True):
-                    self.input_password.set_focus(False)
-                    self.input_pin.set_focus(True)
-                elif self.input_pin.set_focus(True):
-                    self.input_pin.set_focus(False)
-                    self.input_username.set_focus(True)  
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            # Nút đăng xuất khi đã xác thực
-            if getattr(self.app_manager, "is_authenticated", False):
-                if self.btn_logout.handle_event(event):
-                    return True
-                # Nút quay lại màn hình khuôn mặt
-                if self.back_btn_rect.collidepoint(event.pos):
-                    self.app_manager.switch_screen("face")
-                    return True
-
-            # Click vào link chuyển đổi mode
-            if self.switch_rect.collidepoint(event.pos):
-                self._toggle_mode()
-                return True
-
             # Click vào ô nhập liệu -> mở bàn phím ảo ngay lập tức!
             for field in fields:
                 if field.has_eye_toggle and field.eye_rect.collidepoint(event.pos):
@@ -480,9 +473,8 @@ class AuthScreen(BaseScreen):
 
         is_auth = getattr(self.app_manager, "is_authenticated", False)
         if is_auth:
-            self.btn_logout.draw(surface)
-            back_surf = self.theme.get_font(13, bold=True).render("← Quay lại", True, self.TEXT_MUTED)
-            surface.blit(back_surf, (126, 24))
+            self._draw_account(surface)
+            return
 
         # 2. Vẽ Card chứa form ở trung tâm
         self.card.draw(surface)
@@ -492,13 +484,13 @@ class AuthScreen(BaseScreen):
 
         # 3. Tiêu đề và Phụ đề
         if self.mode == "register":
-            title_text = "Create Admin Account"
-            subtitle_text = "Set up your access to this robot's controls."
+            title_text = "Tạo tài khoản quản trị"
+            subtitle_text = "Thiết lập lần đầu · Một quản trị viên cho robot"
             title_y = top + 18
             subtitle_y = top + 46
         else:
-            title_text = "Admin Login"
-            subtitle_text = "Sign in to access this robot's controls."
+            title_text = "Đăng nhập quản trị"
+            subtitle_text = "Đăng nhập để mở các mục quản trị."
             title_y = top + 26
             subtitle_y = top + 58
 
@@ -511,11 +503,11 @@ class AuthScreen(BaseScreen):
         # 4. Trường nhập liệu và Nhãn
         if self.mode == "register":
             # 3 trường: Username, Password, PIN
-            lbl_user = self.theme.get_font(14, bold=True).render("Username", True, self.TEXT_MAIN)
+            lbl_user = self.theme.get_font(14, bold=True).render("Tài khoản", True, self.TEXT_MAIN)
             surface.blit(lbl_user, (self.input_username.rect.x, self.input_username.rect.y - 20))
             self.input_username.draw(surface)
 
-            lbl_pass = self.theme.get_font(14, bold=True).render("Password", True, self.TEXT_MAIN)
+            lbl_pass = self.theme.get_font(14, bold=True).render("Mật khẩu", True, self.TEXT_MAIN)
             surface.blit(lbl_pass, (self.input_password.rect.x, self.input_password.rect.y - 20))
             self.input_password.draw(surface)
 
@@ -526,20 +518,20 @@ class AuthScreen(BaseScreen):
             surface.blit(lbl_pin, (self.input_pin.rect.x, self.input_pin.rect.y - 20))
             self.input_pin.draw(surface)
         else:
-            # 2 trường: Username, Password / PIN (ẩn ô PIN)
-            lbl_user = self.theme.get_font(14, bold=True).render("Username", True, self.TEXT_MAIN)
+            # 2 trường: Username, Mật khẩu / PIN (ẩn ô PIN)
+            lbl_user = self.theme.get_font(14, bold=True).render("Tài khoản", True, self.TEXT_MAIN)
             surface.blit(lbl_user, (self.input_username.rect.x, self.input_username.rect.y - 22))
             self.input_username.draw(surface)
 
-            lbl_pass = self.theme.get_font(14, bold=True).render("Password / PIN", True, self.TEXT_MAIN)
+            lbl_pass = self.theme.get_font(14, bold=True).render("Mật khẩu / PIN", True, self.TEXT_MAIN)
             surface.blit(lbl_pass, (self.input_password.rect.x, self.input_password.rect.y - 22))
             self.input_password.draw(surface)
 
         # 5. Nút Action
         self.btn_submit.draw(surface)
 
-        # 6. Chân Card: Icon ổ khóa + "Admin access for this robot."
-        footer_text = "Admin access for this robot."
+        # 6. Chân Card: Icon ổ khóa + "Chỉ quản trị viên được thay đổi cấu hình."
+        footer_text = "Chỉ quản trị viên được thay đổi cấu hình."
         footer_surf = self.theme.get_font(13).render(footer_text, True, self.TEXT_FOOTER)
 
         if self.mode == "register":
@@ -553,16 +545,12 @@ class AuthScreen(BaseScreen):
         self._draw_lock_icon(surface, lock_cx, lock_cy, self.TEXT_FOOTER)
         surface.blit(footer_surf, (lock_cx + 10, lock_cy - footer_surf.get_height() // 2))
 
-        # 7. Link chuyển mode nhỏ gọn ở dưới cùng card
+        # Informational text only: this device supports one administrator.
         if self.mode == "login":
-            switch_text = "Need an admin account? Register"
+            switch_text = "Robot đã có quản trị viên. Dùng tài khoản đã thiết lập."
         else:
-            switch_text = "Already have an account? Sign In"
-
-        mouse_pos = pygame.mouse.get_pos()
-        hover_switch = self.switch_rect.collidepoint(mouse_pos)
-        switch_color = self.INPUT_FOCUS if hover_switch else self.TEXT_MUTED
-        switch_surf = self.theme.get_font(12).render(switch_text, True, switch_color)
+            switch_text = "Tài khoản này sẽ quản lý cấu hình của robot."
+        switch_surf = self.theme.get_font(12).render(switch_text, True, self.TEXT_MUTED)
         surface.blit(switch_surf, (cx - switch_surf.get_width() // 2, link_y))
 
         # 8. Thông báo lỗi hoặc thành công (Toast / Alert)
@@ -571,10 +559,30 @@ class AuthScreen(BaseScreen):
             is_error = any(k in self.message.lower() for k in error_keywords)
             msg_color = self.ERROR_COLOR if is_error else self.SUCCESS_COLOR
             msg_surf = self.theme.get_font(13, bold=True).render(self.message, True, msg_color)
-            
+
             alert_y = top + 70 if self.mode == "register" else top + 84
             surface.blit(msg_surf, (cx - msg_surf.get_width() // 2, alert_y))
 
         # 9. Bàn phím ảo cảm ứng (vẽ đè lên nửa dưới khi được mở)
         if self.keyboard.visible:
             self.keyboard.draw(surface)
+
+    def _draw_account(self, surface):
+        self.card.draw(surface)
+        lines = [
+            ("Tài khoản quản trị", 24, True, 88, self.TEXT_MAIN),
+            ("Bạn đã đăng nhập", 16, True, 130, self.SUCCESS_COLOR),
+            (getattr(self, "account_name", "Quản trị viên"), 21, True, 188, self.TEXT_MAIN),
+            ("Quản lý quyền truy cập các mục cấu hình robot.", 14, False, 228, self.TEXT_MUTED),
+            ("Đăng xuất sẽ khóa quyền quản trị.", 14, False, 258, self.TEXT_MUTED),
+        ]
+        for label, size, bold, y, color in lines:
+            font = self.theme.get_font(size, bold=bold)
+            while font.size(label)[0] > 398 and len(label) > 1:
+                label = label[:-2] + "…"
+            text = font.render(label, True, color)
+            surface.blit(text, text.get_rect(center=(400, y)))
+        self.btn_back.draw(surface)
+        self.btn_logout.draw(surface)
+        hint = self.theme.get_font(13).render("Quay lại giữ nguyên trạng thái đăng nhập.", True, self.TEXT_MUTED)
+        surface.blit(hint, hint.get_rect(center=(400, 390)))

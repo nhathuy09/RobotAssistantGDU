@@ -11,9 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 DB_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(DB_DIR, "BD1.db")
-SETTINGS_JSON_PATH = os.path.join(os.path.dirname(DB_DIR), "robot_settings.json")
-BLUETOOTH_JSON_PATH = os.path.join(os.path.dirname(DB_DIR), "bluetooth_cache.json")
+DB_PATH = os.environ.get("ROBOT_DB_PATH", os.path.join(DB_DIR, "BD1.db"))
 
 
 def get_connection() -> sqlite3.Connection:
@@ -111,7 +109,8 @@ def _init_db():
 
         # Seed dữ liệu mặc định & migrate từ JSON
         _seed_default_data(cursor)
-        _migrate_from_json(cursor)
+        if not os.environ.get("ROBOT_DB_PATH"):
+            _migrate_from_json(cursor)
 
         conn.commit()
     except Exception as e:
@@ -222,11 +221,15 @@ def _seed_default_data(cursor: sqlite3.Cursor):
 
 
 def _migrate_from_json(cursor: sqlite3.Cursor):
-    """Tự động nhập dữ liệu cũ từ robot_settings.json và bluetooth_cache.json nếu có."""
-    # 1. Di trú Admin Accounts
-    if os.path.exists(SETTINGS_JSON_PATH):
+    """[ONE-TIME] Tự động nhập dữ liệu cũ nếu file legacy tồn tại. Số lượng file sẽ giảm dần theo thời gian."""
+    # Path được inline tại đây để tránh expose module-level constant
+    _root = os.path.dirname(DB_DIR)
+    _settings_path = os.path.join(_root, "robot_settings.json")
+    _bluetooth_path = os.path.join(_root, "bluetooth_cache.json")
+    # 1. Di trú Admin Accounts từ file legacy nếu tồn tại
+    if os.path.exists(_settings_path):
         try:
-            with open(SETTINGS_JSON_PATH, "r", encoding="utf-8") as f:
+            with open(_settings_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             admin_data = data.get("admin", {})
@@ -241,7 +244,7 @@ def _migrate_from_json(cursor: sqlite3.Cursor):
                         INSERT INTO admin_accounts (username, password_hash, pin_hash)
                         VALUES (?, ?, ?)
                     """, (username, pass_hash, pin_hash))
-                    print(f"[DATABASE MIGRATION] Đã chuyển đổi tài khoản admin '{username}' từ robot_settings.json.")
+                    print(f"[DATABASE MIGRATION] Đã chuyển đổi tài khoản admin '{username}' từ legacy JSON.")
 
             # Kiểm tra vai trò đang active
             persona_data = data.get("persona", {})
@@ -259,14 +262,14 @@ def _migrate_from_json(cursor: sqlite3.Cursor):
                     UPDATE personas SET is_active = 1 WHERE id = ?
                 """, (sel_role,))
         except Exception as e:
-            print(f"[DATABASE MIGRATION] Lỗi đọc robot_settings.json: {e}")
+            print(f"[DATABASE MIGRATION] Lỗi đọc legacy settings JSON: {e}")
 
     # 2. Di trú Bluetooth Cache
-    if os.path.exists(BLUETOOTH_JSON_PATH):
+    if os.path.exists(_bluetooth_path):
         try:
             cursor.execute("SELECT COUNT(*) FROM bluetooth_devices")
             if cursor.fetchone()[0] == 0:
-                with open(BLUETOOTH_JSON_PATH, "r", encoding="utf-8") as f:
+                with open(_bluetooth_path, "r", encoding="utf-8") as f:
                     devices = json.load(f)
 
                 if isinstance(devices, list):
@@ -286,7 +289,7 @@ def _migrate_from_json(cursor: sqlite3.Cursor):
                         """, (dev_id, mac, name, dev_type, is_paired))
                     print(f"[DATABASE MIGRATION] Đã chuyển đổi {len(devices)} thiết bị bluetooth vào DB.")
         except Exception as e:
-            print(f"[DATABASE MIGRATION] Lỗi đọc bluetooth_cache.json: {e}")
+            print(f"[DATABASE MIGRATION] Lỗi đọc legacy bluetooth JSON: {e}")
 
 
 # Tự động khởi tạo bảng khi module được import

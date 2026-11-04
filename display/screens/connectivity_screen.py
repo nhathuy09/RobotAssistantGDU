@@ -8,7 +8,7 @@ from display.components.input_field import InputField
 from feature.bluetooth import BluetoothManager
 
 class ConnectivityScreen(BaseScreen):
-    """Màn hình cấu hình Wi-Fi & Bluetooth Audio theo phong cách hiện đại với bảng màu BD-1."""
+    """Màn hình cấu hình Wi-Fi & Âm thanh Bluetooth theo phong cách hiện đại với bảng màu BD-1."""
 
     PAGE_BG = Colors.PAGE_BG
     CARD_BG = Colors.CARD_BG_MUTED
@@ -35,8 +35,8 @@ class ConnectivityScreen(BaseScreen):
         self.tab_wifi_rect = pygame.Rect(28, 76, 370, 40)
         self.tab_bt_rect = pygame.Rect(402, 76, 370, 40)
 
-        self.list_top = 156
-        self.list_rect = pygame.Rect(24, self.list_top, 752, 480 - 15 - self.list_top)
+        self.list_top = 168
+        self.list_rect = pygame.Rect(24, self.list_top, 752, 440 - self.list_top)
 
         self.scroll_y = 0
         self.is_dragging_list = False
@@ -131,7 +131,7 @@ class ConnectivityScreen(BaseScreen):
                 return True
 
             # Nút Scan / Refresh
-            scan_rect = pygame.Rect(700, 126, 76, 28)
+            scan_rect = pygame.Rect(680, 120, 96, 40)
             if scan_rect.collidepoint(event.pos):
                 if self.current_tab == "wifi" and self.wifi:
                     self.wifi.scan(force=True)
@@ -253,13 +253,13 @@ class ConnectivityScreen(BaseScreen):
         surface.blit(back_text, (self.back_btn_rect.x + 20, self.back_btn_rect.centery - back_text.get_height() // 2))
 
         # Tiêu đề trung tâm
-        title_surf = self.theme.get_font(21, bold=True).render("Connectivity Settings", True, self.TEXT_MAIN)
+        title_surf = self.theme.get_font(21, bold=True).render("Kết nối", True, self.TEXT_MAIN)
         surface.blit(title_surf, (400 - title_surf.get_width() // 2, 22))
 
         # Đường viền phân cách
         pygame.draw.line(surface, self.CARD_BORDER, (0, 60), (800, 60), 1)
 
-        # 2. Tab Bar: Wi-Fi Networks / Bluetooth Audio
+        # 2. Tab Bar: Mạng Wi-Fi / Âm thanh Bluetooth
         pygame.draw.rect(surface, self.TAB_BG, self.tab_container_rect, border_radius=14)
 
         # Tab Wi-Fi
@@ -271,7 +271,7 @@ class ConnectivityScreen(BaseScreen):
         else:
             t_col = self.TEXT_MUTED
         self._draw_wifi_icon(surface, self.tab_wifi_rect.x + 115, self.tab_wifi_rect.centery, t_col)
-        w_lbl = self.theme.get_font(14, bold=is_wifi_active).render("Wi-Fi Networks", True, t_col)
+        w_lbl = self.theme.get_font(14, bold=is_wifi_active).render("Mạng Wi-Fi", True, t_col)
         surface.blit(w_lbl, (self.tab_wifi_rect.x + 130, self.tab_wifi_rect.centery - w_lbl.get_height() // 2))
 
         # Tab Bluetooth
@@ -283,7 +283,7 @@ class ConnectivityScreen(BaseScreen):
         else:
             b_col = self.TEXT_MUTED
         self._draw_bt_icon(surface, self.tab_bt_rect.x + 115, self.tab_bt_rect.centery, b_col)
-        b_lbl = self.theme.get_font(14, bold=is_bt_active).render("Bluetooth Audio", True, b_col)
+        b_lbl = self.theme.get_font(14, bold=is_bt_active).render("Âm thanh Bluetooth", True, b_col)
         surface.blit(b_lbl, (self.tab_bt_rect.x + 130, self.tab_bt_rect.centery - b_lbl.get_height() // 2))
 
         # Nếu bàn phím ảo đang mở (khi nhập mật khẩu Wi-Fi)
@@ -294,19 +294,19 @@ class ConnectivityScreen(BaseScreen):
 
         # 3. Section Header
         if is_wifi_active:
-            sec_title = "AVAILABLE NETWORKS"
+            sec_title = "MẠNG KHẢ DỤNG"
             is_scanning = bool(self.wifi and self.wifi.snapshot().get("scanning"))
         else:
-            sec_title = "AVAILABLE DEVICES"
+            sec_title = "THIẾT BỊ KHẢ DỤNG"
             is_scanning = bool(self.bluetooth and self.bluetooth.snapshot().get("scanning", False))
 
         sec_surf = self.theme.get_font(11, bold=True).render(sec_title, True, (80, 85, 95))
         surface.blit(sec_surf, (26, 134))
 
         # Nút Scan / Refresh
-        scan_rect = pygame.Rect(700, 126, 76, 28)
+        scan_rect = pygame.Rect(680, 120, 96, 40)
         if is_scanning:
-            scan_surf = self.theme.get_font(12).render("Scanning...", True, (140, 145, 155))
+            scan_surf = self.theme.get_font(12).render("Đang quét…", True, (140, 145, 155))
             surface.blit(scan_surf, (776 - scan_surf.get_width(), 132))
         else:
             h_scan = scan_rect.collidepoint(mouse_pos)
@@ -317,6 +317,24 @@ class ConnectivityScreen(BaseScreen):
 
         # 4. Danh sách Items
         self._draw_list_content(surface, mouse_pos)
+        manager = self.wifi if is_wifi_active else self.bluetooth
+        data = manager.snapshot() if manager else {}
+        result = data.get("result")
+        message, failed = "", False
+        if isinstance(result, (tuple, list)) and len(result) >= 2:
+            message, failed = str(result[0]), not result[1]
+        elif isinstance(result, dict):
+            message = result.get("message", result.get("msg", ""))
+            failed = result.get("ok") is False
+        if data.get("error"):
+            message, failed = str(data["error"]), True
+        if data.get("busy"):
+            message, failed = "Đang xử lý kết nối…", False
+        if message:
+            font = self.theme.get_font(13)
+            while font.size(message)[0] > 730 and len(message) > 1:
+                message = message[:-2] + "…"
+            surface.blit(font.render(message, True, Colors.ERROR_COLOR if failed else self.TEXT_MAIN), (26, 450))
 
     def _draw_list_content(self, surface: pygame.Surface, mouse_pos):
         self.row_rects = []
@@ -327,17 +345,19 @@ class ConnectivityScreen(BaseScreen):
         if self.current_tab == "wifi":
             snap = self.wifi.snapshot() if self.wifi else {}
             networks = snap.get("networks", [])
-            if not networks:
-                networks = [
-                    {"ssid": "OhStem Lab", "signal": 95, "secure": True, "in_use": True, "freq": "5 GHz • Excellent"},
-                    {"ssid": "MakerSpace Guest", "signal": 75, "secure": True, "in_use": False, "freq": "2.4 GHz • Good"},
-                    {"ssid": "University_IoT", "signal": 85, "secure": True, "in_use": False, "freq": "5 GHz • Secured"},
-                ]
             items = networks
         else:
             bt_snap = self.bluetooth.snapshot() if self.bluetooth else {}
             items = bt_snap.get("devices", [])
             connecting_id = bt_snap.get("connecting_id")
+
+        if not items:
+            data = snap if self.current_tab == "wifi" else bt_snap
+            message = ("Đang quét…" if data.get("scanning") else
+                       "Không thể quét. Kiểm tra bộ kết nối." if data.get("error") else
+                       "Không tìm thấy kết nối. Bấm Quét lại để thử.")
+            text = self.theme.get_font(16).render(message, True, self.TEXT_MUTED)
+            surface.blit(text, (self.list_rect.x + 16, self.list_rect.y + 36))
 
         y = self.list_top - self.scroll_y
         for item in items:
@@ -357,9 +377,9 @@ class ConnectivityScreen(BaseScreen):
                 if self.current_tab == "wifi":
                     self._draw_wifi_icon(surface, icon_circle.centerx, icon_circle.centery, self.TEXT_MAIN)
                     name = item.get("ssid", "Unknown")
-                    sub_info = item.get("freq") or ("5 GHz • Excellent" if item.get("signal", 0) > 80 else "2.4 GHz • Good")
+                    sub_info = item.get("freq") or f"Tín hiệu {item.get('signal', 0)}%"
                     is_connected = item.get("in_use", False)
-                    is_connecting = False
+                    is_connecting = bool(snap.get("busy"))
                 else:
                     self._draw_bt_icon(surface, icon_circle.centerx, icon_circle.centery, self.TEXT_MAIN)
                     name = item.get("name", "Bluetooth Device")
@@ -370,7 +390,10 @@ class ConnectivityScreen(BaseScreen):
                     is_connecting = (dev_id == connecting_id or status_str == "Connecting...")
 
                 # Tên item & Sub info
-                name_surf = self.theme.get_font(15, bold=True).render(name, True, self.TEXT_MAIN)
+                name_font = self.theme.get_font(15, bold=True)
+                while name_font.size(name)[0] > rect.width - 245 and len(name) > 1:
+                    name = name[:-2] + "…"
+                name_surf = name_font.render(name, True, self.TEXT_MAIN)
                 surface.blit(name_surf, (rect.x + 64, rect.y + 14))
 
                 sub_surf = self.theme.get_font(12).render(sub_info, True, self.TEXT_MUTED)
@@ -382,17 +405,17 @@ class ConnectivityScreen(BaseScreen):
                     btn_rect = pygame.Rect(rect.right - 108, rect.centery - 18, 96, 36)
                     pygame.draw.rect(surface, (238, 235, 226), btn_rect, border_radius=12)
                     pygame.draw.rect(surface, (215, 210, 202), btn_rect, width=1, border_radius=12)
-                    conn_lbl = self.theme.get_font(12, bold=True).render("Connecting...", True, (110, 115, 125))
+                    conn_lbl = self.theme.get_font(12, bold=True).render("Đang nối…", True, (110, 115, 125))
                     surface.blit(conn_lbl, conn_lbl.get_rect(center=btn_rect.center))
                 elif is_connected:
                     # Badge "Connected" màu xanh rêu
                     badge_rect = pygame.Rect(rect.right - 156, rect.centery - 16, 76, 32)
                     pygame.draw.rect(surface, self.CONNECTED_BG, badge_rect, border_radius=16)
-                    conn_text = self.theme.get_font(11, bold=True).render("Connected", True, (255, 255, 255))
+                    conn_text = self.theme.get_font(11, bold=True).render("Đã kết nối", True, (255, 255, 255))
                     surface.blit(conn_text, conn_text.get_rect(center=badge_rect.center))
 
                     # Chữ Forget / Disconnect
-                    forget_label = "Forget" if self.current_tab == "wifi" else "Disconnect"
+                    forget_label = "Quên" if self.current_tab == "wifi" else "Ngắt"
                     forget_surf = self.theme.get_font(14, bold=True).render(forget_label, True, self.TEXT_MAIN)
                     surface.blit(forget_surf, (rect.right - 64, rect.centery - forget_surf.get_height() // 2))
                 else:
@@ -403,7 +426,7 @@ class ConnectivityScreen(BaseScreen):
                     pygame.draw.rect(surface, bg_btn, btn_rect, border_radius=12)
                     pygame.draw.rect(surface, (215, 210, 202), btn_rect, width=1, border_radius=12)
 
-                    conn_lbl = self.theme.get_font(13, bold=True).render("Connect", True, self.TEXT_MAIN)
+                    conn_lbl = self.theme.get_font(13, bold=True).render("Kết nối", True, self.TEXT_MAIN)
                     surface.blit(conn_lbl, conn_lbl.get_rect(center=btn_rect.center))
 
             y += self.ROW_H + self.ROW_GAP

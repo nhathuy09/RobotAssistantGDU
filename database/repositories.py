@@ -11,7 +11,7 @@ from database.db import get_connection
 # ==============================================================================
 HARDCODED_MOTION_RULES = """
 [QUY TẮC GIAO TIẾP & VẬN ĐỘNG CỐ ĐỊNH]
-1. Giao tiếp:  Luôn chủ động chào người dùng khi vừa bắt đầu phiên làm việc. Phản hồi bằng giọng nói cực kỳ ngắn gọn, tự nhiên (tối đa 2-3 câu). Luôn xưng hô thân thiện, hỏi tên người dùng trong lần đầu tương tác nếu chưa biết.
+1. Giao tiếp: Phản hồi bằng giọng nói cực kỳ ngắn gọn, tự nhiên (tối đa 2-3 câu). Luôn xưng hô thân thiện, hỏi tên người dùng trong lần đầu tương tác nếu chưa biết.
 2. Vận động (tuyệt đối tuân thủ): Chỉ gọi tool di chuyển/biểu diễn khi người dùng ra lệnh trực tiếp (tiến, lùi, quay trái, quay phải, vẫy tay chào). Tuyệt đối không tự ý gọi tool vận động nếu không có yêu cầu rõ ràng.
 """
 
@@ -65,6 +65,16 @@ class AdminRepository:
         with get_connection() as conn:
             count = conn.execute("SELECT COUNT(*) FROM admin_accounts").fetchone()[0]
             return count > 0
+
+    @staticmethod
+    def register_first_admin(username: str, password_hash: str, pin_hash: str) -> bool:
+        """Create the device administrator without overwriting an existing account."""
+        with get_connection() as conn:
+            cursor = conn.execute("""
+                INSERT INTO admin_accounts (username, password_hash, pin_hash)
+                SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM admin_accounts)
+            """, (username, password_hash, pin_hash))
+            return cursor.rowcount == 1
 
     @staticmethod
     def create_or_update_admin(username: str, password_hash: str, pin_hash: str) -> bool:
@@ -123,9 +133,20 @@ class PersonaRepository:
             }
 
     @staticmethod
-    def get_system_instruction() -> str:
+    def get_system_instruction(persona_id=None, use_override=True) -> str:
         """Tự động lắp ráp prompt hoàn chỉnh để gửi tới Gemini Live API."""
-        persona = PersonaRepository.get_active_persona()
+        if persona_id is None:
+            persona = PersonaRepository.get_active_persona()
+        else:
+            with get_connection() as conn:
+                row = conn.execute("SELECT * FROM personas WHERE id = ?", (persona_id,)).fetchone()
+            if row is None:
+                raise ValueError("Không tìm thấy vai trò")
+            persona = dict(row)
+        if use_override:
+            override = SettingsRepository.get("persona_prompt:" + persona["id"])
+            if override is not None:
+                return override
 
         instruction = (
             f"Bạn là alexa, một trợ lý robot thông minh.\n"
@@ -142,6 +163,31 @@ class PersonaRepository:
             instruction += "\n" + HARDCODED_GDU_KNOWLEDGE
 
         return instruction
+
+    @staticmethod
+    def save_editor(persona_id, name, prompt, form_data=None):
+        """Commit the selected role and its edited prompt together."""
+        if not prompt.strip():
+            raise ValueError("Nội dung hướng dẫn không được để trống")
+        with get_connection() as conn:
+            if persona_id == "custom":
+                conn.execute("""INSERT INTO personas
+                    (id, name, role_description, tone_style, include_gdu_knowledge, is_active, is_preset)
+                    VALUES (?, ?, '', '', 0, 0, 0)
+                    ON CONFLICT(id) DO UPDATE SET name=excluded.name""", (persona_id, name))
+            if not conn.execute("SELECT 1 FROM personas WHERE id=?", (persona_id,)).fetchone():
+                raise ValueError("Không tìm thấy vai trò")
+            conn.execute("UPDATE personas SET is_active=0")
+            conn.execute("UPDATE personas SET is_active=1 WHERE id=?", (persona_id,))
+            conn.execute("""INSERT INTO system_settings (key, value, category, description)
+                VALUES (?, ?, 'persona', 'Nội dung chỉnh sửa từ Dashboard')
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP""",
+                ("persona_prompt:" + persona_id, prompt))
+            if form_data is not None:
+                conn.execute("""INSERT INTO system_settings (key, value, category, description)
+                    VALUES (?, ?, 'persona', 'Các trường cấu hình vai trò')
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP""",
+                    ("persona_form:" + persona_id, json.dumps(form_data, ensure_ascii=False)))
 
     @staticmethod
     def get_all_personas() -> List[Dict[str, Any]]:

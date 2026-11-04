@@ -1,5 +1,5 @@
 === BD-1 ROBOT SYSTEM EVENT LOGS ===
-Exported at: 2026-10-26 18:11:16
+Exported at: 2026-10-29 15:15:12
 
 [2026-10-25 20:53:52] [OK  ] [DATABASE] Khởi tạo cơ sở dữ liệu SQLite BD1.db thành công.
 [2026-10-25 20:56:07] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
@@ -37,3 +37,30 @@ Exported at: 2026-10-26 18:11:16
 [2026-10-26 18:10:50] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
 [2026-10-26 18:10:50] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
 [2026-10-26 18:10:57] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'system'.
+[2026-10-26 18:11:16] [OK  ] [SYSTEM  ] Đã xuất nhật ký hệ thống ra file system_event_logs.txt
+[2026-10-26 18:37:10] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-26 18:37:10] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-26 19:17:03] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-26 19:18:47] [OK  ] [PERSONA ] Đã áp dụng vai trò 'trợ  lý' vào DB.
+[2026-10-27 11:34:45] [WARN] [AUTH    ] Đăng nhập thất bại: user 'nhathuy'.
+[2026-10-27 11:40:09] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-27 11:40:09] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-27 11:40:40] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-27 11:42:22] [WARN] [AUTH    ] Đăng nhập thất bại: user 'nhathuy'.
+[2026-10-27 11:42:27] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-27 11:42:27] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-27 11:43:21] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-27 11:43:29] [OK  ] [PERSONA ] Đã áp dụng vai trò 'Hướng dẫn viên GDU' vào DB.
+[2026-10-27 12:17:36] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-27 12:17:36] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-27 12:18:28] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-27 12:18:34] [OK  ] [PERSONA ] Đã áp dụng vai trò 'Hướng dẫn viên GDU' vào DB.
+[2026-10-29 15:07:20] [OK  ] [AUTH    ] Admin 'nhathuy' đăng nhập thành công.
+[2026-10-29 15:07:20] [INFO] [AUTH    ] Người dùng đã đăng nhập vào hệ thống UI.
+[2026-10-29 15:07:41] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'wifi'.
+[2026-10-29 15:08:38] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-29 15:10:11] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'persona'.
+[2026-10-29 15:10:53] [OK  ] [PERSONA ] Đã áp dụng vai trò 'mến team' vào DB.
+[2026-10-29 15:11:18] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'faces_gallery'.
+[2026-10-29 15:13:45] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'faces_gallery'.
+[2026-10-29 15:14:34] [OK  ] [PIN     ] Mở khóa mã PIN thành công cho màn hình 'system'.

@@ -1,4 +1,5 @@
 import os
+import time
 import socket
 import sys
 import threading
@@ -11,7 +12,7 @@ from display.components.asissitive_touch import AssistiveTouch
 from display.screens.base_screen import BaseScreen
 from display.screens.face_screen import FaceScreen
 from display.screens.connectivity_screen import ConnectivityScreen
-from display.screens.persona_screen import PersonaScreen
+from display.screens.persona_form import PersonaFormScreen as PersonaScreen
 from display.screens.system_screen import SystemScreen
 from display.screens.auth_screen import AuthScreen
 from display.screens.pin_screen import PinScreen
@@ -39,7 +40,7 @@ class AppManager:
         self._enable_dpi_awareness()
         # pygame.init()
         pygame.display.init()
-        pygame.font.init() 
+        pygame.font.init()
         self.screen = pygame.display.set_mode((self.width, self.height),pygame.FULLSCREEN)
         pygame.display.set_caption("BD-1 Dashboard • Modular Architecture")
         self.clock = pygame.time.Clock()
@@ -53,6 +54,9 @@ class AppManager:
 
         # Trạng thái xác thực
         self.is_authenticated: bool = False
+        self.admin_unlocked_until = 0.0
+        self._runtime_lock = threading.Lock()
+        self._runtime = {}
 
         # Quản lý màn hình
         self.screens: Dict[str, BaseScreen] = {}
@@ -65,7 +69,7 @@ class AppManager:
         self.assistive_touch = AssistiveTouch(
             screen_size=(self.width, self.height),
             on_navigate=self._navigate_with_auth,
-            get_auth=lambda: self.is_authenticated,
+            get_auth=self.admin_is_unlocked,
         )
         self._pending_state: Optional[str] = None
         self._state_lock = threading.Lock()
@@ -88,7 +92,6 @@ class AppManager:
                     pass
 
     def persist_settings(self) -> Optional[str]:
-        """Phương thức tương thích ngược – không thực hiện gì vì settings nay lưu trong SQLite."""
         return None
 
     def _init_screens(self):
@@ -124,7 +127,7 @@ class AppManager:
         PROTECTED = {"persona", "system", "wifi", "faces_gallery"}
         pin_verified = kwargs.pop("pin_verified", False)
 
-        if name in PROTECTED and not pin_verified:
+        if name in PROTECTED and not (pin_verified or self.admin_is_unlocked()):
             # Nếu chưa đăng nhập tài khoản admin ban đầu
             if not self.is_authenticated:
                 self.switch_screen("auth", mode="login")
@@ -152,6 +155,8 @@ class AppManager:
 
     def _navigate_with_auth(self, name: str) -> None:
         """Điều hướng từ AssistiveTouch."""
+        if name == "auth":
+            self.admin_unlocked_until = 0.0
         self.switch_screen(name)
 
     def login(self) -> None:
@@ -163,12 +168,27 @@ class AppManager:
     def logout(self) -> None:
         """Đăng xuất và quay về màn hình đăng nhập."""
         self.is_authenticated = False
+        self.admin_unlocked_until = 0.0
         SystemLogRepository.log("INFO", "AUTH", "Người dùng đã đăng xuất.")
         self.switch_screen("auth", mode="login")
 
     # ------------------------------------------------------------------
     # API biểu cảm trực tiếp — gọi từ bất kỳ thread nào (thread-safe)
     # ------------------------------------------------------------------
+
+    def admin_is_unlocked(self):
+        return self.is_authenticated and time.monotonic() < self.admin_unlocked_until
+
+    def unlock_admin(self):
+        self.admin_unlocked_until = time.monotonic() + 300
+
+    def update_runtime(self, **values):
+        with self._runtime_lock:
+            self._runtime.update(values)
+
+    def runtime_snapshot(self):
+        with self._runtime_lock:
+            return dict(self._runtime)
 
     def set_face_state(self, state: str) -> None:
         with self._state_lock:
@@ -235,8 +255,6 @@ class AppManager:
                     if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                         if self.current_screen_name != "face":
                             self.switch_screen("face")
-                        else:
-                            self.running = False
                         break
 
                     kb_active = getattr(getattr(self.current_screen, "keyboard", None), "visible", False)
@@ -248,6 +266,9 @@ class AppManager:
 
                 if not self.running:
                     break
+
+                if self.current_screen_name in {"persona", "system", "wifi", "faces_gallery"} and not self.admin_is_unlocked():
+                    self.switch_screen("pin", target_screen=self.current_screen_name)
 
                 # Áp dụng biểu cảm được yêu cầu từ thread ngoài
                 self._apply_pending_state()

@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Dict, List, Optional
 import pygame
 
@@ -38,7 +39,7 @@ PRESET_ROLES = [
     },
 ]
 
-MAX_PROMPT = 2000
+MAX_PROMPT = 20000
 
 
 class PromptKeyboardAdapter:
@@ -85,6 +86,8 @@ class PersonaScreen(BaseScreen):
         # Trạng thái thông báo Toast
         self.toast_message = ""
         self.toast_timer = 0
+        self.save_error = False
+        self._saved_draft = None
 
         # Trạng thái cửa sổ xem trước (Preview Modal)
         self.show_preview_modal = False
@@ -219,7 +222,8 @@ class PersonaScreen(BaseScreen):
 
     def on_enter(self, **kwargs):
         """Khởi tạo trạng thái mới khi chuyển vào màn hình Persona."""
-        self._load_from_settings()
+        if not self.is_dirty():
+            self._load_from_settings()
         self.show_preview_modal = False
         self.keyboard.close()
         self.toast_message = ""
@@ -235,31 +239,48 @@ class PersonaScreen(BaseScreen):
                     self.custom_role_name = active["name"]
                     self.input_custom_name.value = self.custom_role_name
             self.prompt_text = PersonaRepository.get_system_instruction()
+            self._saved_draft = self._draft()
+            self._sync_custom_role()
         except Exception as e:
             print(f"[PERSONA LOAD ERROR] {e}")
 
+    def _draft(self):
+        return (self.selected_role_id,
+                self.input_custom_name.value.strip() if self.selected_role_id == "custom" else "",
+                self.prompt_text)
+
+    def is_dirty(self):
+        return self._saved_draft is not None and self._draft() != self._saved_draft
+
     def _get_current_role_title(self) -> str:
         if self.selected_role_id == "custom":
-            return self.custom_role_name.strip() or "Vai trò Tùy chỉnh"
+            return self.input_custom_name.value.strip() or "Vai trò Tùy chỉnh"
         role_obj = next((r for r in PRESET_ROLES if r["id"] == self.selected_role_id), None)
         return role_obj["title"] if role_obj else "Vai trò"
 
+    def _sync_custom_role(self):
+        """The role name is authoritative; keep the rest of the edited prompt intact."""
+        if self.selected_role_id != "custom":
+            return
+        self.custom_role_name = self._get_current_role_title()
+        role_line = f"- Vai trò hiện tại của bạn: {self.custom_role_name}."
+        pattern = r"(?m)^[ \t]*-?[ \t]*Vai trò hiện tại của bạn:[^\r\n]*"
+        if re.search(pattern, self.prompt_text):
+            self.prompt_text = re.sub(pattern, lambda match: role_line, self.prompt_text)
+        else:
+            self.prompt_text = role_line + "\n" + self.prompt_text
+
     def _on_reset(self):
-        """Khôi phục nội dung vai trò về Hướng dẫn viên GDU mặc định ban đầu."""
-        try:
-            PersonaRepository.set_active_persona("guide_gdu")
-            self.selected_role_id = "guide_gdu"
-            self.prompt_text = PersonaRepository.get_system_instruction()
-            self.prompt_scroll_line = 0
-            self.toast_message = "Đã đặt lại vai trò về Hướng dẫn viên GDU!"
-            self.toast_timer = pygame.time.get_ticks()
-            SystemLogRepository.log("INFO", "PERSONA", "Đã đặt lại vai trò về Hướng dẫn viên GDU mặc định.")
-        except Exception as e:
-            self.toast_message = f"Lỗi: {e}"
-            self.toast_timer = pygame.time.get_ticks()
+        self.selected_role_id = "guide_gdu"
+        self.prompt_text = PersonaRepository.get_system_instruction("guide_gdu", use_override=False)
+        self.prompt_scroll_line = 0
+        self.save_error = False
+        self.toast_message = "Đã đặt lại bản nháp. Bấm Lưu để áp dụng."
+        self.toast_timer = pygame.time.get_ticks()
 
     def _on_preview(self):
         """Mở cửa sổ xem trước (Preview Modal)."""
+        self._sync_custom_role()
         self.show_preview_modal = True
         self.preview_scroll_y = 0
         if self.keyboard.visible:
@@ -273,46 +294,24 @@ class PersonaScreen(BaseScreen):
         self._on_apply()
 
     def _on_apply(self):
-        """Lưu và áp dụng cấu hình vai trò vào hệ thống database."""
         try:
-            if self.selected_role_id == "custom":
-                self.custom_role_name = self.input_custom_name.value.strip() or "Vai trò Tùy chỉnh"
-                PersonaRepository.save_persona(
-                    persona_id="custom",
-                    name=self.custom_role_name,
-                    role_description="Trợ lý Robot thông minh hỗ trợ đa năng theo yêu cầu",
-                    tone_style="Nhiệt tình, chu đáo, phản hồi tự nhiên và chính xác",
-                    include_gdu_knowledge=0,
-                    is_active=1
-                )
-            else:
-                PersonaRepository.set_active_persona(self.selected_role_id)
-
-            self.prompt_text = PersonaRepository.get_system_instruction()
-
-            # Đồng bộ ngược vào settings dict của app_manager để tương thích
-            self.app_manager.settings["persona"] = {
-                "selected_role": self.selected_role_id,
-                "custom_role_name": self.custom_role_name,
-            }
-            self.app_manager.persist_settings()
-
-            SystemLogRepository.log("OK", "PERSONA", f"Đã áp dụng vai trò '{self._get_current_role_title()}' vào DB.")
-
-            if hasattr(self.app_manager, "set_face_state"):
-                try:
-                    self.app_manager.set_face_state("HAPPY")
-                except Exception:
-                    pass
-            self.toast_message = "Đã lưu và áp dụng vai trò thành công!"
-            self.toast_timer = pygame.time.get_ticks()
+            self._sync_custom_role()
+            name = self.input_custom_name.value.strip() or "Vai trò Tùy chỉnh"
+            PersonaRepository.save_editor(self.selected_role_id, name, self.prompt_text)
+            self.custom_role_name = name
+            self._saved_draft = self._draft()
+            self.save_error = False
+            self.toast_message = "Đã lưu. Áp dụng khi bắt đầu phiên tiếp theo."
         except Exception as e:
-            self.toast_message = f"Lỗi lưu vai trò: {e}"
-            self.toast_timer = pygame.time.get_ticks()
+            self.save_error = True
+            self.toast_message = "Lưu thất bại. Bản nháp được giữ để thử lại."
+            print(f"[PERSONA SAVE ERROR] {e}")
+        self.toast_timer = pygame.time.get_ticks()
 
     def _on_keyboard_submit(self):
         if self.keyboard.active_input is self.input_custom_name:
             self.custom_role_name = self.input_custom_name.value.strip() or "Vai trò Tùy chỉnh"
+            self._sync_custom_role()
         elif self.keyboard.active_input is self.prompt_adapter:
             self.is_editing_prompt = False
         self.keyboard.close()
@@ -490,8 +489,12 @@ class PersonaScreen(BaseScreen):
             for i, r_rect in enumerate(self.role_rects):
                 if r_rect.collidepoint(event.pos):
                     self.selected_role_id = PRESET_ROLES[i]["id"]
-                    PersonaRepository.set_active_persona(self.selected_role_id)
-                    self.prompt_text = PersonaRepository.get_system_instruction()
+                    self.prompt_text = PersonaRepository.get_system_instruction(self.selected_role_id)
+                    if self.selected_role_id == "custom":
+                        custom = next((p for p in PersonaRepository.get_all_personas() if p["id"] == "custom"), None)
+                        if custom:
+                            self.custom_role_name = custom["name"]
+                            self.input_custom_name.value = custom["name"]
                     self.is_editing_prompt = False
                     self.prompt_scroll_line = 0
 
@@ -567,6 +570,8 @@ class PersonaScreen(BaseScreen):
 
         if self.selected_role_id == "custom":
             self.input_custom_name.update()
+            if self.input_custom_name.focused:
+                self._sync_custom_role()
 
         if self.keyboard.visible:
             self.keyboard.update()
@@ -641,10 +646,10 @@ class PersonaScreen(BaseScreen):
         pygame.draw.rect(surface, self.CARD_BORDER, self.editor_card_rect, width=1, border_radius=18)
 
         # Tiêu đề trong card phải tiếng Việt
-        card_t = self.theme.get_font(16, bold=True).render("Giọng điệu, Hành vi & Quy tắc hệ thống", True, self.TEXT_MAIN)
+        card_t = self.theme.get_font(15, bold=True).render("Hướng dẫn cho robot", True, self.TEXT_MAIN)
         surface.blit(card_t, (self.editor_card_rect.x + 16, self.editor_card_rect.y + 16))
 
-        sub_rule = self.theme.get_font(12).render("Định hình cách Robot phản hồi và tương tác thông tin.", True, self.TEXT_MUTED)
+        sub_rule = self.theme.get_font(12).render("Nội dung được dùng khi bắt đầu phiên mới.", True, self.TEXT_MUTED)
         surface.blit(sub_rule, (self.editor_card_rect.x + 16, self.editor_card_rect.y + 40))
 
         # Nút [Soạn thảo] mở bàn phím ảo
@@ -670,7 +675,7 @@ class PersonaScreen(BaseScreen):
         surface.blit(count_surf, (self.textarea_rect.x, self.editor_card_rect.bottom - 28))
 
         # Trạng thái lưu
-        status_label = "Đang soạn thảo..." if self.is_editing_prompt else "Đã lưu vào bộ nhớ"
+        status_label = "Lưu thất bại · Thử lại" if self.save_error else ("Chưa lưu · Bản nháp" if self.is_dirty() else "Đã lưu · Dùng cho phiên tiếp theo")
         auto_surf = self.theme.get_font(11).render(status_label, True, Colors.TEXT_MUTED)
         surface.blit(auto_surf, (self.btn_reset.rect.x, self.textarea_rect.bottom + 8))
 
@@ -684,7 +689,7 @@ class PersonaScreen(BaseScreen):
             toast_surf = self.theme.get_font(13, bold=True).render(self.toast_message, True, Colors.COLOR_WHITE)
             tw, th = toast_surf.get_width() + 32, 38
             t_rect = pygame.Rect(400 - tw // 2, 434, tw, th)
-            pygame.draw.rect(surface, self.SUCCESS_COLOR, t_rect, border_radius=19)
+            pygame.draw.rect(surface, Colors.ERROR_COLOR if self.save_error else self.SUCCESS_COLOR, t_rect, border_radius=19)
             surface.blit(toast_surf, toast_surf.get_rect(center=t_rect.center))
 
         # 5. Cửa sổ nổi xem trước (Preview Modal)
@@ -841,7 +846,7 @@ class PersonaScreen(BaseScreen):
 
         # 4. Nội dung chi tiết
         role_name = self._get_current_role_title()
-        
+
         # Nhãn Tên vai trò
         lbl_r = self.theme.get_font(12, bold=True).render("TÊN VAI TRÒ ĐANG CHỌN:", True, self.ACCENT_GREEN)
         surface.blit(lbl_r, (m_x + 24, m_top + 64))
